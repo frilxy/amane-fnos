@@ -5,6 +5,10 @@ name: 构建并发布 fpk
 on:
   schedule:
     - cron: "0 22 * * *"
+  # 推送 v* tag 也可以立刻发一版（例如 git push origin v0.18.0）
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
     inputs:
       upstream_version:
