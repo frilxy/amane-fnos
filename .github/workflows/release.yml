@@ -181,6 +181,13 @@ jobs:
             gh release edit "v${FPK_VERSION}" --title "Amane ${FPK_VERSION} (${UP_TAG})" --notes-file "$notes"
             gh release upload "v${FPK_VERSION}" \
               "dist/amane-${FPK_VERSION}.fpk" dist/amane.fpk --clobber
+          elif git ls-remote --tags origin "refs/tags/v${FPK_VERSION}" | grep -q .; then
+            # tag 已存在（例如手动推送 v* tag 触发）时直接挂 Release
+            gh release create "v${FPK_VERSION}" \
+              --title "Amane ${FPK_VERSION} (${UP_TAG})" \
+              --notes-file "$notes" \
+              --verify-tag \
+              "dist/amane-${FPK_VERSION}.fpk" dist/amane.fpk
           else
             gh release create "v${FPK_VERSION}" \
               --title "Amane ${FPK_VERSION} (${UP_TAG})" \
