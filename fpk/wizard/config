@@ -20,6 +20,19 @@
                 ]
             },
             {
+                "type": "text",
+                "field": "wizard_proxy",
+                "label": "出网代理（可选）",
+                "initValue": "",
+                "helpText": "留空表示沿用当前设置；填写后对整个容器生效（HTTP_PROXY / HTTPS_PROXY / ALL_PROXY），保存即自动重建容器，例如 http://host.docker.internal:7890。填 off 可取消代理。",
+                "rules": [
+                    {
+                        "pattern": "^(https?://[^\\s\"'`#]+)?$",
+                        "message": "请填写 http:// 或 https:// 开头的地址，留空表示不使用代理"
+                    }
+                ]
+            },
+            {
                 "type": "tips",
                 "helpText": "媒体目录请使用「授权目录」单独维护：新增或取消授权后，Amane 会在应用下次启动时重新生成挂载配置。"
             }

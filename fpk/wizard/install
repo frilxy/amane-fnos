@@ -20,6 +20,19 @@
                 ]
             },
             {
+                "type": "text",
+                "field": "wizard_proxy",
+                "label": "出网代理（可选）",
+                "initValue": "",
+                "helpText": "留空表示容器直连。若 NAS 上有 OpenSurge / mihomo 之类的代理，而容器拉取元数据、海报时不顺畅，可填 http://host.docker.internal:7890（用 Docker 网关指向 NAS，NAS 换 IP 也不会失效）或 http://192.168.x.x:7890。只支持 http:// 与 https:// 两种写法。",
+                "rules": [
+                    {
+                        "pattern": "^(https?://[^\\s\"'`#]+)?$",
+                        "message": "请填写 http:// 或 https:// 开头的地址，留空表示不使用代理"
+                    }
+                ]
+            },
+            {
                 "type": "tips",
                 "helpText": "媒体目录授权：安装完成后进入「应用设置 → 授权目录」，把存放影视的文件夹（例如 /vol1/media）授予 Amane 并保存。Amane 会在应用下次启动时把授权目录挂载进容器，并同步写入 AMANE_SAFE_DIRS。未授权的目录不会挂载，容器内也看不到。"
             },

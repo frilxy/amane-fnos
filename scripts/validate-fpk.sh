@@ -58,8 +58,8 @@ if entries["appname"] != "amane":
     raise SystemExit("manifest.appname 必须是 amane")
 if entries["source"] != "thirdparty":
     raise SystemExit("manifest.source 必须是 thirdparty")
-if entries["platform"] != "x86":
-    raise SystemExit("manifest.platform 必须是 x86")
+if entries["platform"] not in ("x86", "arm", "all"):
+    raise SystemExit(f"manifest.platform 取值不合法：{entries['platform']}")
 if not re.fullmatch(r"\d+\.\d+\.\d+(\.\d+)?", entries["version"]):
     raise SystemExit(f"manifest.version 格式不合法：{entries['version']}")
 if entries["desktop_uidir"] != "ui":
@@ -143,6 +143,7 @@ env -i PATH="$PATH" \
     TRIM_UID=1000 \
     TRIM_GID=1000 \
     wizard_port=9123 \
+    wizard_proxy="http://host.docker.internal:7890" \
     sh -c ". ./fpk/cmd/lib/compose.sh; amane_render_compose '${generated}'" >"${tmp}/render.log" 2>&1 ||
     { cat "${tmp}/render.log"; fail "渲染器执行失败"; }
 cat "${tmp}/render.log"
@@ -155,6 +156,27 @@ if [ -n "$legit" ]; then
     grep -qF "${legit}:${legit}" "$generated" || fail "合法授权目录没有被挂载"
     grep -qF "AMANE_SAFE_DIRS" "$generated" || fail "AMANE_SAFE_DIRS 未写入"
 fi
+
+# 代理：设了必须整组写入，未设时不能出现代理变量
+grep -q 'HTTPS_PROXY: "http://host.docker.internal:7890"' "$generated" || fail "HTTPS_PROXY 未写入"
+grep -q 'HTTP_PROXY: "http://host.docker.internal:7890"' "$generated" || fail "HTTP_PROXY 未写入"
+grep -q 'ALL_PROXY: "http://host.docker.internal:7890"' "$generated" || fail "ALL_PROXY 未写入"
+grep -q 'NO_PROXY:' "$generated" || fail "NO_PROXY 未写入"
+grep -q 'host.docker.internal:host-gateway' "$generated" || fail "缺少 host.docker.internal 映射"
+[ "$(head -n 1 "${tmp}/etc/proxy")" = "http://host.docker.internal:7890" ] || fail "代理未持久化到 etc"
+
+# 清空（留空）应沿用上次设置；off 才清除
+env -i PATH="$PATH" TRIM_APPNAME=amane TRIM_APPDEST="${fpk}/app" TRIM_PKGETC="${tmp}/etc" \
+    AMANE_IMAGE_FILE="${fpk}/app/docker/image" wizard_port=9123 wizard_proxy="" \
+    sh -c ". ./fpk/cmd/lib/compose.sh; amane_render_compose '${tmp}/keep.yaml'" >/dev/null 2>&1
+grep -q 'HTTPS_PROXY' "${tmp}/keep.yaml" || fail "留空代理后应沿用上一次的设置"
+
+env -i PATH="$PATH" TRIM_APPNAME=amane TRIM_APPDEST="${fpk}/app" TRIM_PKGETC="${tmp}/etc" \
+    AMANE_IMAGE_FILE="${fpk}/app/docker/image" wizard_port=9123 wizard_proxy="off" \
+    sh -c ". ./fpk/cmd/lib/compose.sh; amane_render_compose '${tmp}/off.yaml'" >/dev/null 2>&1
+grep -q 'HTTPS_PROXY' "${tmp}/off.yaml" && fail "填写 off 后应清除代理"
+[ -s "${tmp}/etc/proxy" ] && fail "off 之后代理状态文件应为空"
+ok "代理设置（设置/沿用/清除）渲染正确"
 ok "渲染器拒绝非法输入并保留合法授权目录"
 
 if command -v docker >/dev/null 2>&1; then

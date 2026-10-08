@@ -1,9 +1,9 @@
 appname                    = amane
 version                    = 0.18.0
 display_name               = Amane
-desc                       = AI 时代的私人影库（社区 Docker 封装版）。<br /><br />自动监控磁盘文件变化并刮削、本地优先持久化影片元数据、多源择优、目录整理、图片超分、自然语言智能体与海报墙 Web 界面。<br /><br />本应用包由 frilxy/amane-fnos 自动构建，容器镜像使用上游官方镜像。<br />安装后请到「应用设置 → 授权目录」把媒体文件夹授予 Amane，然后在应用设置中保存或重启一次应用。<br />首次登录需要 API Token：见「应用文件 / amane / data / token」，或执行 docker logs amane 查看。
+desc                       = AI 时代的私人影库（社区 Docker 封装版）。<br /><br />自动监控磁盘文件变化并刮削、本地优先持久化影片元数据、多源择优、目录整理、图片超分、自然语言智能体与海报墙 Web 界面。<br /><br />本应用包由 frilxy/amane-fnos 自动构建，容器镜像使用上游官方镜像。<br />安装向导可设置访问端口与出网代理；安装后请到「应用设置 → 授权目录」把媒体文件夹授予 Amane，然后在应用设置中保存或重启一次应用。<br />首次登录需要 API Token：见「应用文件 / amane / data / token」，或执行 docker logs amane 查看。<br /><br /><strong>架构说明</strong>：应用包与上游镜像均为 x86_64 / ARM 双架构（platform=all），但 ARM 设备未做实机验证，如有问题请在 GitHub 反馈。
 source                     = thirdparty
-platform                   = x86
+platform                   = all
 maintainer                 = frilxy
 maintainer_url             = https://github.com/frilxy/amane-fnos
 distributor                = frilxy
@@ -14,4 +14,4 @@ desktop_applaunchname      = amane.main
 checkport                  = false
 ctl_stop                   = true
 disable_authorization_path = false
-changelog                  = 同步上游 amane v0.18.0：使用官方镜像 ghcr.io/sqzw-x/amane:0.18.0，支持授权目录自动挂载与端口向导。
+changelog                  = 同步上游 amane v0.18.0：官方多架构镜像（x86_64 / ARM，ARM 未实机验证）；新增出网代理向导项（HTTP_PROXY/HTTPS_PROXY/ALL_PROXY）与 host.docker.internal 支持。

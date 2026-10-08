@@ -44,7 +44,12 @@ amane_render() {
     . "$_lib"
     if amane_render_compose "$AMANE_COMPOSE_FILE"; then
         AMANE_PORT="${AMANE_RESOLVED_PORT:-8000}"
-        amane_log "已生成 ${AMANE_COMPOSE_FILE}（访问端口 ${AMANE_PORT}）"
+        AMANE_PROXY="${AMANE_RESOLVED_PROXY:-}"
+        if [ -n "$AMANE_PROXY" ]; then
+            amane_log "已生成 ${AMANE_COMPOSE_FILE}（访问端口 ${AMANE_PORT}，出网代理 ${AMANE_PROXY}）"
+        else
+            amane_log "已生成 ${AMANE_COMPOSE_FILE}（访问端口 ${AMANE_PORT}，未设置出网代理）"
+        fi
         return 0
     fi
     amane_log "生成 ${AMANE_COMPOSE_FILE} 失败"

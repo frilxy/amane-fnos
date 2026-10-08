@@ -9,6 +9,10 @@ services:
     restart: unless-stopped
     ports:
       - "8000:8000"
+    # 让容器内的 http://host.docker.internal:<port> 始终指向 NAS 宿主，
+    # 代理地址填它就不会因为 NAS 的 DHCP 地址变化而失效。
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - "/var/apps/amane/shares/data:/data"
       - "/etc/localtime:/etc/localtime:ro"
@@ -18,6 +22,7 @@ services:
       AMANE_HOST: 0.0.0.0
       AMANE_PORT: "8000"
       # 尚未授权任何媒体目录：在「应用设置 → 授权目录」里放开文件夹后重启应用即可自动挂载
+      # 想让容器走代理时，在「应用设置」里填写代理地址（如 http://host.docker.internal:7890）并保存
     healthcheck:
       test:
         - CMD

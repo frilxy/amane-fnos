@@ -13,6 +13,7 @@
 #   TRIM_RUN_UID / TRIM_RUN_GID 当前脚本执行用户
 #   TRIM_USERNAME               应用用户名
 #   wizard_port                 访问端口，默认 8000
+#   wizard_proxy                可选出网代理（http:// 或 https://），留空表示直连
 #   AMANE_IMAGE_FILE            镜像定义文件，默认 <compose 所在目录>/image
 #
 # 用法：
@@ -27,6 +28,7 @@
 AMANE_DEFAULT_PORT=8000
 AMANE_CONTAINER_PORT=8000
 AMANE_RESOLVED_PORT="$AMANE_DEFAULT_PORT"
+AMANE_RESOLVED_PROXY=""
 
 amane_log() {
     printf '[%s] [compose] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >&2
@@ -81,6 +83,54 @@ amane_path_is_acceptable() {
 '*) return 1 ;;
     esac
     return 0
+}
+
+# 代理状态文件：etc 目录在升级后仍然保留
+amane_proxy_state_file() {
+    [ -n "${TRIM_PKGETC:-}" ] || return 1
+    printf '%s/proxy' "$TRIM_PKGETC"
+}
+
+# 解析容器出网代理：wizard_proxy 显式提交 > 上次保存 > 不使用代理
+# 语义：留空＝沿用上次保存的值；填 off/none/direct/- ＝取消代理；
+# 只接受 http:// 与 https://（mihomo 等混合端口同时支持 HTTP 与 SOCKS，
+# 但 HTTP 形式对 Python 客户端最稳，socks 方案需要容器内额外依赖）。
+amane_resolve_proxy() {
+    _state=$(amane_proxy_state_file || true)
+    _p=""
+    if [ -n "$_state" ] && [ -r "$_state" ]; then
+        _p=$(head -n 1 "$_state" 2>/dev/null | tr -d ' \t\r\n')
+    fi
+    if [ "${wizard_proxy+set}" = "set" ]; then
+        _submitted=$(printf '%s' "${wizard_proxy}" | tr -d ' \t\r\n')
+        case "$_submitted" in
+        '') ;;
+        off | OFF | Off | none | NONE | direct | DIRECT | -)
+            _p=""
+            ;;
+        *)
+            case "$_submitted" in
+            http://* | https://*) _p="$_submitted" ;;
+            *)
+                amane_log "代理地址 ${_submitted} 不被支持（只接受 http:// 或 https://），沿用原设置"
+                ;;
+            esac
+            ;;
+        esac
+    fi
+    case "$_p" in
+    *'"'* | *"'"* | *'$'* | *'`'* | *'\'* | *'#'*) _p="" ;;
+    esac
+    if [ -n "$_state" ]; then
+        {
+            if [ -n "$_p" ]; then
+                printf '%s\n' "$_p" >"$_state"
+            else
+                : >"$_state"
+            fi
+        } 2>/dev/null || true
+    fi
+    printf '%s' "$_p"
 }
 
 # 应用数据目录：优先使用 data-share 声明的共享目录
@@ -192,6 +242,23 @@ amane_render_compose() {
         _env_safe="      # 尚未授权任何媒体目录：在「应用设置 → 授权目录」里放开文件夹后重启应用即可自动挂载"
     fi
 
+    # 出网代理：设了才写，避免影响未使用代理的安装
+    _proxy=$(amane_resolve_proxy)
+    AMANE_RESOLVED_PROXY="$_proxy"
+    _no_proxy="localhost,127.0.0.1,::1,host.docker.internal,192.168.0.0/16,10.0.0.0/8,172.16.0.0/12,100.64.0.0/10"
+    if [ -n "$_proxy" ]; then
+        _env_proxy="      HTTP_PROXY: \"${_proxy}\"
+      HTTPS_PROXY: \"${_proxy}\"
+      ALL_PROXY: \"${_proxy}\"
+      http_proxy: \"${_proxy}\"
+      https_proxy: \"${_proxy}\"
+      all_proxy: \"${_proxy}\"
+      NO_PROXY: \"${_no_proxy}\"
+      no_proxy: \"${_no_proxy}\""
+    else
+        _env_proxy="      # 想让容器走代理时，在「应用设置」里填写代理地址（如 http://host.docker.internal:7890）并保存"
+    fi
+
     _tmp="${_out}.tmp.$$"
     umask 022
     if [ "${AMANE_COMPOSE_OMIT_TIMESTAMP:-0}" = "1" ]; then
@@ -211,6 +278,10 @@ services:
     restart: unless-stopped
     ports:
       - "${AMANE_RESOLVED_PORT}:${AMANE_CONTAINER_PORT}"
+    # 让容器内的 http://host.docker.internal:<port> 始终指向 NAS 宿主，
+    # 代理地址填它就不会因为 NAS 的 DHCP 地址变化而失效。
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
 ${_volume_lines}
     environment:
@@ -219,6 +290,7 @@ ${_volume_lines}
       AMANE_HOST: 0.0.0.0
       AMANE_PORT: "${AMANE_CONTAINER_PORT}"
 ${_env_safe}
+${_env_proxy}
     healthcheck:
       test:
         - CMD
