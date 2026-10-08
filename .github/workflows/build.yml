@@ -1,0 +1,41 @@
+name: 校验并构建 fpk
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "fpk/**"
+      - "scripts/**"
+      - ".github/workflows/**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v7
+
+      - name: 准备校验用的挂载目录
+        run: |
+          sudo mkdir -p /vol1/media-validate "/vol1/media validate"
+          sudo chmod 777 /vol1/media-validate "/vol1/media validate"
+
+      - name: 静态校验
+        run: bash scripts/validate-fpk.sh
+
+      - name: 构建 fpk
+        run: bash scripts/build-fpk.sh
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v7
+        with:
+          name: amane-fpk
+          path: dist/amane-*.fpk
+          if-no-files-found: error
+          retention-days: 14

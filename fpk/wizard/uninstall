@@ -1,0 +1,17 @@
+[
+    {
+        "stepTitle": "卸载选项",
+        "items": [
+            {
+                "type": "switch",
+                "field": "wizard_remove_data",
+                "label": "同时删除 Amane 数据目录",
+                "initValue": "false"
+            },
+            {
+                "type": "tips",
+                "helpText": "默认保留数据：数据库、刮削结果、缩略图、日志都存放在应用共享目录（/vol*/@appshare/amane/data），卸载后重新安装可以继续使用。选择删除后数据不可恢复，被授权挂载的媒体文件本身不会被删除。"
+            }
+        ]
+    }
+]

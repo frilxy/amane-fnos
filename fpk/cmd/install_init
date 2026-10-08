@@ -1,0 +1,24 @@
+#!/bin/bash
+# 安装前检查：Docker 运行时是否可用
+set -u
+
+AMANE_SCRIPT_TAG=install_init
+
+_lib_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
+for _candidate in "$_lib_dir" "${TRIM_APPDEST:-}/../cmd" "/var/apps/${TRIM_APPNAME:-amane}/cmd"; do
+    if [ -n "$_candidate" ] && [ -r "$_candidate/lib/common.sh" ]; then
+        # shellcheck source=lib/common.sh
+        . "$_candidate/lib/common.sh"
+        break
+    fi
+done
+if [ -z "${AMANE_COMPOSE_FILE:-}" ]; then
+    echo "[install_init] 无法加载 lib/common.sh" >&2
+fi
+
+if ! command -v docker >/dev/null 2>&1; then
+    amane_user_error "未检测到 Docker 运行时，Amane 依赖 Docker 运行容器，请先确认系统 Docker 服务可用。"
+    exit 1
+fi
+
+exit 0

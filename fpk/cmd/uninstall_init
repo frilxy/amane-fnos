@@ -1,0 +1,7 @@
+#!/bin/bash
+# 卸载前：无需预处理（用户数据默认保留）
+set -u
+
+AMANE_SCRIPT_TAG=uninstall_init
+
+exit 0

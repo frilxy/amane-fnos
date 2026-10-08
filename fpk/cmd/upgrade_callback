@@ -1,0 +1,27 @@
+#!/bin/bash
+# 升级后：按新版本镜像重新生成 compose，并应用到运行中的容器
+set -u
+
+AMANE_SCRIPT_TAG=upgrade_callback
+
+_lib_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
+for _candidate in "$_lib_dir" "${TRIM_APPDEST:-}/../cmd" "/var/apps/${TRIM_APPNAME:-amane}/cmd"; do
+    if [ -n "$_candidate" ] && [ -r "$_candidate/lib/common.sh" ]; then
+        # shellcheck source=lib/common.sh
+        . "$_candidate/lib/common.sh"
+        break
+    fi
+done
+if [ -z "${AMANE_COMPOSE_FILE:-}" ]; then
+    echo "[upgrade_callback] 无法加载 lib/common.sh" >&2
+    exit 1
+fi
+
+if amane_render; then
+    amane_log "已切换到镜像 $(head -n 1 "${AMANE_DOCKER_DIR}/image" 2>/dev/null)"
+    amane_apply_compose || true
+else
+    amane_log "沿用已存在的 docker-compose.yaml"
+fi
+
+exit 0

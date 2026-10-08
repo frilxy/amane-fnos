@@ -1,0 +1,17 @@
+#!/bin/bash
+# 升级前：仅记录版本信息，数据由容器自行迁移
+set -u
+
+AMANE_SCRIPT_TAG=upgrade_init
+
+_lib_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
+for _candidate in "$_lib_dir" "${TRIM_APPDEST:-}/../cmd" "/var/apps/${TRIM_APPNAME:-amane}/cmd"; do
+    if [ -n "$_candidate" ] && [ -r "$_candidate/lib/common.sh" ]; then
+        # shellcheck source=lib/common.sh
+        . "$_candidate/lib/common.sh"
+        break
+    fi
+done
+
+amane_log "Amane 升级：${TRIM_OLD_APPVER:-未知版本} → ${TRIM_APPVER:-未知版本}"
+exit 0

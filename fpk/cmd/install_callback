@@ -1,0 +1,41 @@
+#!/bin/bash
+# 安装后：生成第一份 docker-compose.yaml，并准备数据目录
+set -u
+
+AMANE_SCRIPT_TAG=install_callback
+
+_lib_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
+for _candidate in "$_lib_dir" "${TRIM_APPDEST:-}/../cmd" "/var/apps/${TRIM_APPNAME:-amane}/cmd"; do
+    if [ -n "$_candidate" ] && [ -r "$_candidate/lib/common.sh" ]; then
+        # shellcheck source=lib/common.sh
+        . "$_candidate/lib/common.sh"
+        break
+    fi
+done
+if [ -z "${AMANE_COMPOSE_FILE:-}" ]; then
+    echo "[install_callback] 无法加载 lib/common.sh" >&2
+    exit 1
+fi
+
+_render_ok=1
+amane_render || _render_ok=0
+
+# 数据目录（data-share）由系统创建；这里只做兜底，确保容器首次启动即可写
+if [ -r "${AMANE_CMD_DIR}/lib/compose.sh" ]; then
+    # shellcheck source=lib/compose.sh
+    . "${AMANE_CMD_DIR}/lib/compose.sh"
+    _data_dir=$(amane_resolve_data_dir)
+    if [ -n "$_data_dir" ] && [ ! -d "$_data_dir" ]; then
+        mkdir -p "$_data_dir" 2>/dev/null || amane_log "无法创建数据目录 ${_data_dir}，将在容器首次启动时重试"
+    fi
+fi
+
+if [ "$_render_ok" -eq 0 ] && [ ! -f "$AMANE_COMPOSE_FILE" ]; then
+    amane_user_error "未能生成 ${AMANE_COMPOSE_FILE}，Amane 无法启动。请检查应用目录权限后重试。"
+    exit 1
+fi
+
+amane_log "安装完成。首次登录：浏览器打开 http://<NAS 地址>:${AMANE_PORT}/ ，API Token 见「应用文件 / amane / data / token」或 docker logs ${AMANE_PROJECT}"
+amane_log "媒体目录授权：应用设置 → 授权目录 中添加文件夹并保存，Amane 会在下次启动时自动挂载"
+
+exit 0

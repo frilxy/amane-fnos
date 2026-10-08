@@ -1,0 +1,52 @@
+#!/bin/bash
+# Amane fnOS 应用生命周期脚本：start / stop / status
+#
+# 容器的启停由应用中心按 config/resource 的 docker-project 接管；
+# 这里负责在启动前把「应用设置 + 授权目录」翻译成 docker-compose.yaml，
+# 并在 docker 可用时立即把配置变化应用到已运行的容器上。
+set -u
+
+AMANE_SCRIPT_TAG=main
+
+_lib_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
+for _candidate in "$_lib_dir" "${TRIM_APPDEST:-}/../cmd" "/var/apps/${TRIM_APPNAME:-amane}/cmd"; do
+    if [ -n "$_candidate" ] && [ -r "$_candidate/lib/common.sh" ]; then
+        # shellcheck source=lib/common.sh
+        . "$_candidate/lib/common.sh"
+        break
+    fi
+done
+if [ -z "${AMANE_COMPOSE_FILE:-}" ]; then
+    echo "[main] 无法加载 lib/common.sh，生命周期脚本不可用" >&2
+    exit 1
+fi
+
+case "${1:-}" in
+start)
+    if amane_render; then
+        amane_apply_compose || true
+    else
+        amane_log "沿用上一次的 docker-compose.yaml"
+    fi
+    exit 0
+    ;;
+stop)
+    # 容器由应用中心停止，这里无需额外动作
+    exit 0
+    ;;
+status)
+    if amane_container_running; then
+        exit 0
+    fi
+    AMANE_PORT=$(amane_port_from_compose)
+    [ -n "$AMANE_PORT" ] || AMANE_PORT="${wizard_port:-8000}"
+    if amane_http_ready "$AMANE_PORT"; then
+        exit 0
+    fi
+    exit 3
+    ;;
+*)
+    amane_user_error "未知的生命周期参数：${1:-<空>}"
+    exit 1
+    ;;
+esac

@@ -1,0 +1,198 @@
+name: 构建并发布 fpk
+
+# 每天北京时间 06:00（UTC 22:00）检查上游 sqzw-x/amane 的版本与镜像 digest，
+# 有变化就用最新的官方镜像重新打包 fpk 并发布 Release。
+on:
+  schedule:
+    - cron: "0 22 * * *"
+  workflow_dispatch:
+    inputs:
+      upstream_version:
+        description: "指定上游版本（留空＝自动检测最新，可带 v 前缀）"
+        required: false
+        default: ""
+      force:
+        description: "忽略变更检测，强制重新出包"
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: amane-fnos-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v7
+
+      - name: 解析上游版本与镜像 digest
+        id: upstream
+        env:
+          UPSTREAM_VERSION: ${{ github.event.inputs.upstream_version }}
+        run: bash scripts/resolve-upstream.sh
+
+      - name: 读取上一次发布的状态
+        id: state
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          body=$(gh release view --json body -q .body 2>/dev/null || true)
+          meta=$(printf '%s\n' "$body" | sed -n 's/.*<!-- amane-fnos: \(.*\) -->.*/\1/p' | head -n 1)
+          [ -n "$meta" ] || meta='{}'
+          echo "upstream_version=$(jq -r '.upstream_version // ""' <<<"$meta")" >>"$GITHUB_OUTPUT"
+          echo "image_digest=$(jq -r '.image_digest // ""' <<<"$meta")" >>"$GITHUB_OUTPUT"
+          echo "rebuild=$(jq -r '.rebuild // 0' <<<"$meta")" >>"$GITHUB_OUTPUT"
+          echo "fpk_version=$(jq -r '.fpk_version // ""' <<<"$meta")" >>"$GITHUB_OUTPUT"
+          echo "pack_hash=$(jq -r '.pack_hash // ""' <<<"$meta")" >>"$GITHUB_OUTPUT"
+
+      - name: 判定是否需要出新包
+        id: decide
+        env:
+          UP_VERSION: ${{ steps.upstream.outputs.version }}
+          UP_DIGEST: ${{ steps.upstream.outputs.digest }}
+          UP_TAG: ${{ steps.upstream.outputs.tag }}
+          PREV_VERSION: ${{ steps.state.outputs.upstream_version }}
+          PREV_DIGEST: ${{ steps.state.outputs.image_digest }}
+          PREV_REBUILD: ${{ steps.state.outputs.rebuild }}
+          PREV_PACK_HASH: ${{ steps.state.outputs.pack_hash }}
+          FORCE: ${{ github.event.inputs.force }}
+        run: |
+          set -euo pipefail
+          # 打包脚本指纹：只有 fpk 工程与构建脚本内容变化时才会变
+          pack_hash=$(find fpk scripts -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-16)
+          rebuild=0
+          fpk_version="$UP_VERSION"
+          reason=""
+          if [ -z "$PREV_VERSION" ]; then
+            reason="首次构建"
+          elif [ "$UP_VERSION" != "$PREV_VERSION" ]; then
+            reason="上游版本更新：${PREV_VERSION} → ${UP_VERSION}"
+          elif [ "$UP_DIGEST" != "$PREV_DIGEST" ]; then
+            rebuild=$(( ${PREV_REBUILD:-0} + 1 ))
+            fpk_version="${UP_VERSION}.${rebuild}"
+            reason="镜像 digest 变化（同一上游版本），重建序号 ${rebuild}"
+          elif [ -n "$PREV_PACK_HASH" ] && [ "$pack_hash" != "$PREV_PACK_HASH" ]; then
+            rebuild=$(( ${PREV_REBUILD:-0} + 1 ))
+            fpk_version="${UP_VERSION}.${rebuild}"
+            reason="打包脚本有更新，重建序号 ${rebuild}"
+          elif [ "$FORCE" = "true" ]; then
+            rebuild=$(( ${PREV_REBUILD:-0} + 1 ))
+            fpk_version="${UP_VERSION}.${rebuild}"
+            reason="手动强制重建，重建序号 ${rebuild}"
+          fi
+
+          if [ -n "$reason" ]; then
+            changed=true
+          else
+            changed=false
+            reason="上游无变化（${UP_VERSION} / ${UP_DIGEST}），跳过"
+          fi
+
+          echo "changed=$changed" >>"$GITHUB_OUTPUT"
+          echo "fpk_version=$fpk_version" >>"$GITHUB_OUTPUT"
+          echo "rebuild=$rebuild" >>"$GITHUB_OUTPUT"
+          echo "pack_hash=$pack_hash" >>"$GITHUB_OUTPUT"
+          echo "reason=$reason" >>"$GITHUB_OUTPUT"
+          {
+            echo "### 上游检查"
+            echo ""
+            echo "- 上游版本：\`${UP_TAG}\`"
+            echo "- 镜像：\`${{ steps.upstream.outputs.image }}\`"
+            echo "- digest：\`${UP_DIGEST}\`"
+            echo "- 打包指纹：\`${pack_hash}\`"
+            echo "- 判定：${reason}"
+          } >>"${GITHUB_STEP_SUMMARY:-/dev/null}"
+
+      - name: 渲染 fpk 工程
+        if: steps.decide.outputs.changed == 'true'
+        env:
+          FPK_VERSION: ${{ steps.decide.outputs.fpk_version }}
+          IMAGE: ${{ steps.upstream.outputs.image }}
+          DIGEST: ${{ steps.upstream.outputs.digest }}
+          UP_TAG: ${{ steps.upstream.outputs.tag }}
+        run: |
+          set -euo pipefail
+          changelog="同步上游 ${UP_TAG}；容器镜像 ${IMAGE}（${DIGEST}）。"
+          bash scripts/render-fpk.sh "$FPK_VERSION" "$IMAGE" "$changelog"
+
+      - name: 校验并打包
+        id: build
+        if: steps.decide.outputs.changed == 'true'
+        run: bash scripts/build-fpk.sh
+
+      - name: 发布 Release
+        if: steps.decide.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FPK_VERSION: ${{ steps.decide.outputs.fpk_version }}
+          UP_TAG: ${{ steps.upstream.outputs.tag }}
+          IMAGE: ${{ steps.upstream.outputs.image }}
+          DIGEST: ${{ steps.upstream.outputs.digest }}
+          REBUILD: ${{ steps.decide.outputs.rebuild }}
+          PACK_HASH: ${{ steps.decide.outputs.pack_hash }}
+          SHA256: ${{ steps.build.outputs.sha256 }}
+          SIZE: ${{ steps.build.outputs.size }}
+        run: |
+          set -euo pipefail
+          notes=$(mktemp)
+          {
+            echo "## Amane for fnOS \`${FPK_VERSION}\`"
+            echo ""
+            echo "由 [frilxy/amane-fnos](https://github.com/${GITHUB_REPOSITORY}) 自动构建的飞牛 fnOS 应用包，容器使用上游官方镜像。"
+            echo ""
+            echo "| 项目 | 值 |"
+            echo "| --- | --- |"
+            echo "| 上游标签 | \`${UP_TAG}\` |"
+            echo "| 容器镜像 | \`${IMAGE}\` |"
+            echo "| 镜像 digest | \`${DIGEST}\` |"
+            echo "| fpk 版本 | \`${FPK_VERSION}\` |"
+            echo "| 文件大小 | ${SIZE} 字节 |"
+            echo "| SHA256 | \`${SHA256}\` |"
+            echo "| 构建时间 | $(date -u '+%Y-%m-%d %H:%M UTC') |"
+            echo ""
+            echo "### 安装"
+            echo ""
+            echo "1. 下载下方的 \`amane-${FPK_VERSION}.fpk\`（固定链接：[\`amane.fpk\`](https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/amane.fpk)）。"
+            echo "2. 打开 fnOS「应用中心 → 手动安装」，选择该文件。"
+            echo "3. 安装向导填写 Web 访问端口（默认 8000）。"
+            echo "4. 安装完成后进入「应用设置 → 授权目录」，把媒体文件夹授予 Amane，然后重启一次应用。"
+            echo "5. 首次登录的 API Token 见「文件管理 → 应用文件 → amane → data → token」，或执行 \`docker logs amane\`。"
+            echo ""
+            echo "### 本次变更"
+            echo ""
+            echo "同步上游 \`${UP_TAG}\`，镜像 \`${IMAGE}\`（\`${DIGEST}\`）。"
+            echo ""
+            echo '<!-- amane-fnos: {"upstream_version":"'"${UP_TAG#v}"'","image":"'"${IMAGE}"'","image_digest":"'"${DIGEST}"'","fpk_version":"'"${FPK_VERSION}"'","rebuild":'"${REBUILD:-0}"',"pack_hash":"'"${PACK_HASH}"'"} -->'
+          } >"$notes"
+
+          if gh release view "v${FPK_VERSION}" >/dev/null 2>&1; then
+            gh release edit "v${FPK_VERSION}" --title "Amane ${FPK_VERSION} (${UP_TAG})" --notes-file "$notes"
+            gh release upload "v${FPK_VERSION}" \
+              "dist/amane-${FPK_VERSION}.fpk" dist/amane.fpk --clobber
+          else
+            gh release create "v${FPK_VERSION}" \
+              --title "Amane ${FPK_VERSION} (${UP_TAG})" \
+              --notes-file "$notes" \
+              --target "$GITHUB_SHA" \
+              "dist/amane-${FPK_VERSION}.fpk" dist/amane.fpk
+          fi
+
+          {
+            echo ""
+            echo "### 产物"
+            echo ""
+            echo "- \`dist/amane-${FPK_VERSION}.fpk\`（sha256 \`${SHA256}\`）"
+            echo "- Release：https://github.com/${GITHUB_REPOSITORY}/releases/tag/v${FPK_VERSION}"
+          } >>"${GITHUB_STEP_SUMMARY:-/dev/null}"
+
+      - name: 无需更新
+        if: steps.decide.outputs.changed != 'true'
+        run: echo "${{ steps.decide.outputs.reason }}"

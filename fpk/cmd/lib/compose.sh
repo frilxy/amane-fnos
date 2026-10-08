@@ -1,0 +1,257 @@
+#!/bin/sh
+# Amane fnOS 应用包 —— docker-compose.yaml 渲染器
+#
+# 由 cmd/ 下的生命周期脚本在安装、升级、配置变更和启动时调用，
+# 把 fnOS 的应用设置（访问端口、授权目录）翻译成一份可用的 Compose 文件。
+#
+# 输入（全部来自 fnOS 运行环境，缺失时使用安全默认值）：
+#   TRIM_APPNAME                应用名，默认 amane
+#   TRIM_APPDEST                已安装的 target 目录
+#   TRIM_DATA_SHARE_PATHS       config/resource 声明的共享目录（冒号分隔）
+#   TRIM_DATA_ACCESSIBLE_PATHS  管理员在「授权目录」里放开的宿主机路径（冒号分隔）
+#   TRIM_UID / TRIM_GID         应用用户（容器内进程身份）
+#   TRIM_RUN_UID / TRIM_RUN_GID 当前脚本执行用户
+#   TRIM_USERNAME               应用用户名
+#   wizard_port                 访问端口，默认 8000
+#   AMANE_IMAGE_FILE            镜像定义文件，默认 <compose 所在目录>/image
+#
+# 用法：
+#   . compose.sh && amane_render_compose [输出路径]
+#   sh compose.sh [输出路径]
+#
+# 设计要点：
+#   1. 只挂载管理员确实授权过的目录，不整卷挂载；
+#   2. 任何异常/越界输入都会被拒绝并跳过，绝不生成非法 YAML；
+#   3. 内容没有变化时不重写文件，避免无谓的容器重建。
+
+AMANE_DEFAULT_PORT=8000
+AMANE_CONTAINER_PORT=8000
+AMANE_RESOLVED_PORT="$AMANE_DEFAULT_PORT"
+
+amane_log() {
+    printf '[%s] [compose] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >&2
+}
+
+# 端口状态文件：etc 目录在升级后仍然保留，用于记住用户选择的端口
+amane_port_state_file() {
+    [ -n "${TRIM_PKGETC:-}" ] || return 1
+    printf '%s/web-port' "$TRIM_PKGETC"
+}
+
+# 解析访问端口：wizard_port > 上次保存的端口 > 8000
+amane_resolve_port() {
+    _state=$(amane_port_state_file || true)
+    _p="${wizard_port:-}"
+    case "$_p" in
+    '' | *[!0-9]*) _p="" ;;
+    esac
+    if [ -n "$_p" ]; then
+        _p=$(printf '%s' "$_p" | sed 's/^0*//')
+    fi
+    if [ -z "$_p" ] && [ -n "$_state" ] && [ -r "$_state" ]; then
+        _p=$(head -n 1 "$_state" 2>/dev/null | tr -d ' \t\r\n')
+        case "$_p" in
+        '' | *[!0-9]*) _p="" ;;
+        esac
+    fi
+    case "$_p" in
+    '' | *[!0-9]*) _p="$AMANE_DEFAULT_PORT" ;;
+    esac
+    if [ "$_p" -lt 1024 ] || [ "$_p" -gt 65535 ]; then
+        amane_log "端口 ${wizard_port:-<空>} 不在 1024-65535 范围内，改用 ${AMANE_DEFAULT_PORT}"
+        _p="$AMANE_DEFAULT_PORT"
+    fi
+    if [ -n "$_state" ]; then
+        {
+            printf '%s\n' "$_p" >"$_state"
+        } 2>/dev/null || true
+    fi
+    printf '%s' "$_p"
+}
+
+# 授权目录校验：必须在存储卷下，且不含可用于注入的字符
+amane_path_is_acceptable() {
+    case "$1" in
+    /vol/* | /vol[0-9]*) ;;
+    *) return 1 ;;
+    esac
+    case "$1" in
+    *..* | *'"'* | *"'"* | *'\'* | *'$'* | *'`'* | *'#'*) return 1 ;;
+    *'
+'*) return 1 ;;
+    esac
+    return 0
+}
+
+# 应用数据目录：优先使用 data-share 声明的共享目录
+amane_resolve_data_dir() {
+    _share="${TRIM_DATA_SHARE_PATHS:-}"
+    case "$_share" in
+    *:*) _share="${_share%%:*}" ;;
+    esac
+    if [ -z "$_share" ]; then
+        _share="/var/apps/${TRIM_APPNAME:-amane}/shares/data"
+    fi
+    printf '%s' "$_share"
+}
+
+# 容器运行身份：与 fnOS 应用用户对齐，授权目录的 ACL 才能生效
+amane_resolve_identity() {
+    _uid=""
+    _gid=""
+    if [ -n "${TRIM_USERNAME:-}" ]; then
+        _uid=$(id -u "$TRIM_USERNAME" 2>/dev/null || true)
+        _gid=$(id -g "$TRIM_USERNAME" 2>/dev/null || true)
+    fi
+    [ -n "$_uid" ] || _uid="${TRIM_UID:-}"
+    [ -n "$_gid" ] || _gid="${TRIM_GID:-}"
+    [ -n "$_uid" ] || _uid="${TRIM_RUN_UID:-1000}"
+    [ -n "$_gid" ] || _gid="${TRIM_RUN_GID:-1000}"
+    case "$_uid" in '' | *[!0-9]*) _uid=1000 ;; esac
+    case "$_gid" in '' | *[!0-9]*) _gid=1000 ;; esac
+    printf '%s:%s' "$_uid" "$_gid"
+}
+
+# amane_render_compose [输出路径]
+# 成功返回 0，并把实际端口写入 AMANE_RESOLVED_PORT
+amane_render_compose() {
+    _out="$1"
+    [ -n "$_out" ] || _out="${TRIM_APPDEST:-/var/apps/${TRIM_APPNAME:-amane}}/docker/docker-compose.yaml"
+
+    _appname="${TRIM_APPNAME:-amane}"
+    _docker_dir=$(dirname "$_out")
+    _image_file="${AMANE_IMAGE_FILE:-}"
+    if [ -z "$_image_file" ]; then
+        # 允许在 etc 目录放 image-override 覆盖镜像地址（例如改用私有镜像代理），
+        # 该文件在升级后依然保留。
+        if [ -n "${TRIM_PKGETC:-}" ] && [ -r "${TRIM_PKGETC}/image-override" ]; then
+            _image_file="${TRIM_PKGETC}/image-override"
+        else
+            _image_file="${_docker_dir}/image"
+        fi
+    fi
+
+    _image=""
+    if [ -r "$_image_file" ]; then
+        _image=$(head -n 1 "$_image_file" 2>/dev/null | tr -d ' \t\r\n')
+    fi
+    case "$_image" in
+    */*:*) ;;
+    *) _image="" ;;
+    esac
+    if [ -z "$_image" ]; then
+        amane_log "镜像定义无效或缺失：${_image_file}"
+        return 1
+    fi
+
+    AMANE_RESOLVED_PORT=$(amane_resolve_port)
+    _identity=$(amane_resolve_identity)
+    _data_dir=$(amane_resolve_data_dir)
+
+    _volume_lines="      - \"${_data_dir}:/data\""
+    _safe_dirs=""
+    _seen="|"
+    _rest="${TRIM_DATA_ACCESSIBLE_PATHS:-}"
+    while [ -n "$_rest" ]; do
+        case "$_rest" in
+        *:*) _path="${_rest%%:*}" ; _rest="${_rest#*:}" ;;
+        *) _path="$_rest" ; _rest="" ;;
+        esac
+        [ -n "$_path" ] || continue
+        if ! amane_path_is_acceptable "$_path"; then
+            amane_log "跳过不安全的授权路径：${_path}"
+            continue
+        fi
+        if [ ! -d "$_path" ]; then
+            amane_log "跳过不存在的授权路径：${_path}"
+            continue
+        fi
+        # 解析符号链接后再校验一次，避免授权路径被指向 /vol 之外
+        _real_path=$(readlink -f "$_path" 2>/dev/null || true)
+        if [ -z "$_real_path" ] || ! amane_path_is_acceptable "$_real_path"; then
+            amane_log "跳过指向存储卷之外的授权路径：${_path}"
+            continue
+        fi
+        case "$_seen" in
+        *"|${_real_path}|"*) continue ;;
+        esac
+        _volume_lines="${_volume_lines}
+      - \"${_real_path}:${_real_path}\""
+        _safe_dirs="${_safe_dirs:+${_safe_dirs},}${_real_path}"
+        _seen="${_seen}${_real_path}|"
+    done
+
+    if [ -f /etc/localtime ]; then
+        _volume_lines="${_volume_lines}
+      - \"/etc/localtime:/etc/localtime:ro\""
+    fi
+
+    if [ -n "$_safe_dirs" ]; then
+        _env_safe="      AMANE_SAFE_DIRS: \"${_safe_dirs}\""
+    else
+        _env_safe="      # 尚未授权任何媒体目录：在「应用设置 → 授权目录」里放开文件夹后重启应用即可自动挂载"
+    fi
+
+    _tmp="${_out}.tmp.$$"
+    umask 022
+    if [ "${AMANE_COMPOSE_OMIT_TIMESTAMP:-0}" = "1" ]; then
+        _stamp_line="# 由 frilxy/amane-fnos 的 CI 生成；运行时会被生命周期脚本按应用设置重新生成。"
+    else
+        _stamp_line="# 生成时间：$(date '+%Y-%m-%d %H:%M:%S')"
+    fi
+    cat >"$_tmp" <<EOF
+# 本文件由 frilxy/amane-fnos 的 cmd/ 生命周期脚本自动生成，手工修改会在下次启动或升级时被覆盖。
+${_stamp_line}
+# 镜像：${_image}
+services:
+  amane:
+    image: ${_image}
+    container_name: ${_appname}
+    user: "${_identity}"
+    restart: unless-stopped
+    ports:
+      - "${AMANE_RESOLVED_PORT}:${AMANE_CONTAINER_PORT}"
+    volumes:
+${_volume_lines}
+    environment:
+      AMANE_DATA_DIR: /data
+      AMANE_SUPERVISED: "1"
+      AMANE_HOST: 0.0.0.0
+      AMANE_PORT: "${AMANE_CONTAINER_PORT}"
+${_env_safe}
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:${AMANE_CONTAINER_PORT}/api/health')
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+EOF
+
+    if [ ! -s "$_tmp" ]; then
+        amane_log "渲染结果为空：${_tmp}"
+        rm -f "$_tmp"
+        return 1
+    fi
+
+    if [ -f "$_out" ] && cmp -s "$_tmp" "$_out"; then
+        rm -f "$_tmp"
+        return 0
+    fi
+
+    if ! mv -f "$_tmp" "$_out" 2>/dev/null; then
+        amane_log "无法写入 ${_out}（权限不足？）"
+        rm -f "$_tmp"
+        return 1
+    fi
+    return 0
+}
+
+# 允许直接执行：sh compose.sh [输出路径]
+if [ "${0##*/}" = "compose.sh" ]; then
+    amane_render_compose "${1:-}"
+    exit $?
+fi

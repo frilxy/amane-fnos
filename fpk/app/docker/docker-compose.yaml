@@ -1,0 +1,30 @@
+# 本文件由 frilxy/amane-fnos 的 cmd/ 生命周期脚本自动生成，手工修改会在下次启动或升级时被覆盖。
+# 由 frilxy/amane-fnos 的 CI 生成；运行时会被生命周期脚本按应用设置重新生成。
+# 镜像：ghcr.io/sqzw-x/amane:0.18.0
+services:
+  amane:
+    image: ghcr.io/sqzw-x/amane:0.18.0
+    container_name: amane
+    user: "1000:1000"
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - "/var/apps/amane/shares/data:/data"
+      - "/etc/localtime:/etc/localtime:ro"
+    environment:
+      AMANE_DATA_DIR: /data
+      AMANE_SUPERVISED: "1"
+      AMANE_HOST: 0.0.0.0
+      AMANE_PORT: "8000"
+      # 尚未授权任何媒体目录：在「应用设置 → 授权目录」里放开文件夹后重启应用即可自动挂载
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s

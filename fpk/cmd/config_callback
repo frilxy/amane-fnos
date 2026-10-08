@@ -1,0 +1,33 @@
+#!/bin/bash
+# 配置变更后：重新生成 compose，并让运行中的容器立即生效
+set -u
+
+AMANE_SCRIPT_TAG=config_callback
+
+_lib_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
+for _candidate in "$_lib_dir" "${TRIM_APPDEST:-}/../cmd" "/var/apps/${TRIM_APPNAME:-amane}/cmd"; do
+    if [ -n "$_candidate" ] && [ -r "$_candidate/lib/common.sh" ]; then
+        # shellcheck source=lib/common.sh
+        . "$_candidate/lib/common.sh"
+        break
+    fi
+done
+if [ -z "${AMANE_COMPOSE_FILE:-}" ]; then
+    echo "[config_callback] 无法加载 lib/common.sh" >&2
+    exit 1
+fi
+
+if amane_render; then
+    amane_log "访问端口：${AMANE_PORT}"
+    if [ -n "${TRIM_DATA_ACCESSIBLE_PATHS:-}" ]; then
+        amane_log "已授权目录：${TRIM_DATA_ACCESSIBLE_PATHS}"
+    else
+        amane_log "当前没有授权目录，Amane 只能访问自身数据目录"
+    fi
+    amane_apply_compose || true
+else
+    amane_user_error "配置已保存，但 docker-compose.yaml 生成失败，请检查应用目录权限；当前仍使用上一次的配置。"
+    exit 0
+fi
+
+exit 0
