@@ -50,7 +50,9 @@ PY
 
 printf '%s\n' "$image" >"${fpk}/app/docker/image"
 
-# 用包内同一份渲染器生成默认 compose，保证仓库里的默认文件与运行时逻辑一致
+# 用包内同一份渲染器生成默认 compose，保证仓库里的默认文件与运行时逻辑一致。
+# AMANE_COMPOSE_TEMPLATE=1：默认文件里用 ${TRIM_*} 占位，这样即使容器在
+# install_callback 之前就被应用中心创建，身份与数据目录也仍然正确。
 (
     cd "$root"
     env -i PATH="$PATH" \
@@ -60,6 +62,7 @@ printf '%s\n' "$image" >"${fpk}/app/docker/image"
         TRIM_UID=1000 \
         TRIM_GID=1000 \
         AMANE_COMPOSE_OMIT_TIMESTAMP=1 \
+        AMANE_COMPOSE_TEMPLATE=1 \
         wizard_port=8000 \
         sh -c '. ./fpk/cmd/lib/compose.sh; amane_render_compose'
 )

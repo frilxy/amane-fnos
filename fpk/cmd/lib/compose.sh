@@ -198,6 +198,13 @@ amane_render_compose() {
     _identity=$(amane_resolve_identity)
     _data_dir=$(amane_resolve_data_dir)
 
+    if [ "${AMANE_COMPOSE_TEMPLATE:-0}" = "1" ]; then
+        # 随包发布的默认文件：应用中心可能在 install_callback 之前就创建容器，
+        # 这里改用 fnOS 注入到 compose 的环境变量，保证身份与数据目录仍然正确。
+        _identity='${TRIM_UID:-1000}:${TRIM_GID:-1000}'
+        _data_dir='${TRIM_DATA_SHARE_PATHS:-/var/apps/'"${_appname}"'/shares/data}'
+    fi
+
     _volume_lines="      - \"${_data_dir}:/data\""
     _safe_dirs=""
     _seen="|"

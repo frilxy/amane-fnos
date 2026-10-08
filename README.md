@@ -172,6 +172,53 @@ ls dist/                                               # dist/amane-0.18.0.fpk�
 - **卸载保留数据**：卸载向导默认保留数据；勾选「同时删除 Amane 数据目录」才会删除
   `/vol*/@appshare/amane/data`（只删应用自己的共享目录，媒体文件不受影响）。
 
+## 排障
+
+### 应用显示“运行中”，但选路径报 `No safe directories configured.`
+
+这句话的含义是：**正在跑的容器里没有`AMANE_SAFE_DIRS`**。通常不是授权没成功，而是这个容器不是本应用包
+创建的——最常见的原因是机器上有一个手工部署的旧 `amane` 容器占用了容器名，应用中心 `up -d` 撞名失败，
+于是你一直在用旧容器。
+
+先确认真身（在 NAS 的 SSH 里执行，四行都要看）：
+
+```bash
+sudo docker inspect amane --format '{{.Config.User}}'
+sudo docker inspect amane --format '{{index .Config.Labels "com.docker.compose.project"}}'
+sudo docker inspect amane --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{"\n"}}{{end}}'
+sudo docker inspect amane --format '{{range .Config.Env}}{{println .}}{{end}}' | grep AMANE
+```
+
+本应用包创建的容器应该是：`user` = 应用用户（例如 `962:901`，而不是 `1000:1000`）、
+`com.docker.compose.project` = `amane`、挂载里能看到你在「授权目录」里放开的路径、
+环境变量里有 `AMANE_SAFE_DIRS=<你的媒体目录>`。
+
+对不上就删掉旧容器、用本应用的 compose 重新创建：
+
+```bash
+sudo docker rm -f amane
+sudo docker compose -p amane -f /vol6/@appcenter/amane/docker/docker-compose.yaml up -d
+sudo docker exec amane id                                   # 应为应用用户
+sudo docker exec amane env | grep AMANE_SAFE_DIRS           # 应为你的媒体目录
+```
+
+如果机器上还留着旧的手工 compose 项目，记得在「Docker」应用里把那个项目删掉，
+否则它随时可能再把同名容器创建回来。
+
+### 改了授权目录 / 端口 / 代理，容器没生效
+
+`docker-compose.yaml` 会在安装、升级、保存应用设置、启动时重新生成，但**只有容器被重建才会生效**。
+应用用户默认不在 `docker` 组（fnOS 的默认状态），所以生命周期脚本无法自己去重建容器，
+此时应用日志（`/var/log/apps/amane.log`）会直接打印结论和命令。两种生效方式：
+
+1. 「Docker」应用 → 项目 → `amane` → **重新部署**；
+2. SSH 执行 `sudo docker compose -p amane -f /vol6/@appcenter/amane/docker/docker-compose.yaml up -d`。
+
+### 应用中心里显示运行中，但网页打不开
+
+先看容器日志 `sudo docker logs --tail 200 amane`：多数是镜像还没拉完（首次几百 MB）、
+端口被占用，或者数据库迁移失败。拉镜像慢/失败见上面的「网络与代理」。
+
 ## 已知限制
 
 - **架构**：`platform = all`，x86_64 与 ARM 都可安装（上游镜像是 `amd64/arm64` 多架构的，

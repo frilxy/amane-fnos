@@ -5,7 +5,7 @@ services:
   amane:
     image: ghcr.io/sqzw-x/amane:0.18.0
     container_name: amane
-    user: "1000:1000"
+    user: "${TRIM_UID:-1000}:${TRIM_GID:-1000}"
     restart: unless-stopped
     ports:
       - "8000:8000"
@@ -14,7 +14,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - "/var/apps/amane/shares/data:/data"
+      - "${TRIM_DATA_SHARE_PATHS:-/var/apps/amane/shares/data}:/data"
       - "/etc/localtime:/etc/localtime:ro"
     environment:
       AMANE_DATA_DIR: /data

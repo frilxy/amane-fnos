@@ -190,4 +190,12 @@ else
         ok "YAML 解析通过（未安装 docker CLI）" || echo "  ! 跳过 compose 语法校验（缺少 docker/yaml）"
 fi
 
+# 随包默认文件必须使用 TRIM_* 占位，避免容器在 install_callback 之前被创建时身份/数据目录出错
+default_compose="${fpk}/app/docker/docker-compose.yaml"
+grep -qF '${TRIM_UID:-1000}:${TRIM_GID:-1000}' "$default_compose" ||
+    fail "默认 compose 未使用 \${TRIM_UID} 占位"
+grep -qF '${TRIM_DATA_SHARE_PATHS:-/var/apps/amane/shares/data}:/data' "$default_compose" ||
+    fail "默认 compose 未使用 \${TRIM_DATA_SHARE_PATHS} 占位"
+ok "随包默认 compose 使用 TRIM_* 占位"
+
 echo "全部校验通过。"

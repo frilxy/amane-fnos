@@ -78,17 +78,46 @@ amane_container_running() {
 # 容器已在运行但配置刚变化时，用与容器名一致的项目名重建一次。
 # 失败不致命：应用中心下次启动容器时会使用新配置。
 amane_apply_compose() {
-    amane_docker_available || return 0
-    amane_container_running || return 0
-    docker compose version >/dev/null 2>&1 || return 0
-    # 沿用创建该容器的 Compose 项目名，避免生成一个平行项目
+    if ! command -v docker >/dev/null 2>&1; then
+        amane_log "未找到 docker 命令，跳过自动重建容器"
+        return 0
+    fi
+    if ! amane_docker_available; then
+        # 应用用户默认不在 docker 组，属正常情况：把结论和补救命令写清楚，而不是静默跳过
+        amane_log "当前身份无权访问 Docker，未自动重建容器。授权目录/端口/代理的改动要生效，请二选一："
+        amane_log "  1) 打开「Docker」应用 → 项目 → ${AMANE_PROJECT} → 重新部署（重建容器）"
+        amane_log "  2) SSH 执行：sudo docker compose -p ${AMANE_PROJECT} -f ${AMANE_COMPOSE_FILE} up -d"
+        return 0
+    fi
+    docompose() {
+        docker compose -p "$AMANE_PROJECT" -f "$AMANE_COMPOSE_FILE" up -d >/dev/null 2>&1
+    }
+
+    if ! amane_container_exists; then
+        amane_log "容器 ${AMANE_PROJECT} 尚未创建，应用中心启动时会按最新 compose 创建"
+        return 0
+    fi
+
+    # 同名容器可能来自别的 compose 项目（例如手工部署的旧项目），这时必须点明
     _existing_project=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' "$AMANE_PROJECT" 2>/dev/null)
-    [ -n "$_existing_project" ] && AMANE_PROJECT="$_existing_project"
-    if docker compose -p "$AMANE_PROJECT" -f "$AMANE_COMPOSE_FILE" up -d >/dev/null 2>&1; then
+    if [ -n "$_existing_project" ] && [ "$_existing_project" != "$AMANE_PROJECT" ]; then
+        amane_log "检测到容器 ${AMANE_PROJECT} 由其它 Compose 项目（${_existing_project}）创建，本应用无法接管它，"
+        amane_log "这时的界面并不是本应用包创建的容器（常见表现：选路径报 No safe directories configured）。"
+        amane_log "修复：sudo docker rm -f ${AMANE_PROJECT} && sudo docker compose -p ${AMANE_PROJECT} -f ${AMANE_COMPOSE_FILE} up -d"
+        return 1
+    fi
+
+    if ! amane_container_running; then
+        amane_log "容器 ${AMANE_PROJECT} 未运行，配置改动会在下次启动时生效"
+        return 0
+    fi
+
+    if docompose; then
         amane_log "已按最新配置重建容器 ${AMANE_PROJECT}"
         return 0
     fi
-    amane_log "自动重建容器失败，请到应用中心手动重启一次 Amane"
+    amane_log "自动重建容器失败，请在「Docker」应用 → 项目 → ${AMANE_PROJECT} 里点『重新部署』，或执行："
+    amane_log "  sudo docker compose -p ${AMANE_PROJECT} -f ${AMANE_COMPOSE_FILE} up -d"
     return 1
 }
 
