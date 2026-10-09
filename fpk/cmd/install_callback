@@ -38,4 +38,7 @@ fi
 amane_log "安装完成。首次登录：浏览器打开 http://<NAS 地址>:${AMANE_PORT}/ ，API Token 见「应用文件 / amane / data / token」或 docker logs ${AMANE_PROJECT}"
 amane_log "媒体目录授权：应用设置 → 授权目录 中添加文件夹并保存，Amane 会在下次启动时自动挂载"
 
+# 端口被别的容器占住时，本应用起不来，这里提前说清楚
+amane_warn_port_conflict "$AMANE_PORT" || true
+
 exit 0

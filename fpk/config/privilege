@@ -3,5 +3,8 @@
         "run-as": "package"
     },
     "username": "amane",
-    "groupname": "amane"
+    "groupname": "amane",
+    "join-groups": [
+        "docker"
+    ]
 }

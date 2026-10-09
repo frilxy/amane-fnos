@@ -176,48 +176,59 @@ ls dist/                                               # dist/amane-0.18.0.fpk�
 
 ### 应用显示“运行中”，但选路径报 `No safe directories configured.`
 
-这句话的含义是：**正在跑的容器里没有`AMANE_SAFE_DIRS`**。通常不是授权没成功，而是这个容器不是本应用包
-创建的——最常见的原因是机器上有一个手工部署的旧 `amane` 容器占用了容器名，应用中心 `up -d` 撞名失败，
-于是你一直在用旧容器。
-
-先确认真身（在 NAS 的 SSH 里执行，四行都要看）：
+这句话的含义是：**正在跑的容器里没有 `AMANE_SAFE_DIRS`**，也就是这个容器不是按本应用的 compose 创建的。
+先分清两种情况（在 NAS 的 SSH 里执行，四行都要看）：
 
 ```bash
 sudo docker inspect amane --format '{{.Config.User}}'
-sudo docker inspect amane --format '{{index .Config.Labels "com.docker.compose.project"}}'
+sudo docker inspect amane --format '{{index .Config.Labels "com.docker.compose.project"}} | {{index .Config.Labels "com.docker.compose.project.config_files"}}'
 sudo docker inspect amane --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{"\n"}}{{end}}'
 sudo docker inspect amane --format '{{range .Config.Env}}{{println .}}{{end}}' | grep AMANE
 ```
 
-本应用包创建的容器应该是：`user` = 应用用户（例如 `962:901`，而不是 `1000:1000`）、
-`com.docker.compose.project` = `amane`、挂载里能看到你在「授权目录」里放开的路径、
-环境变量里有 `AMANE_SAFE_DIRS=<你的媒体目录>`。
+本应用创建的容器应该是：`user` = 应用用户:应用组（例如 `962:956`）、
+`com.docker.compose.project` = `amane`、`config_files` = `/vol6/@appcenter/amane/docker/docker-compose.yaml`、
+挂载里能看到 `/data` 和你授权目录里的每个路径、环境变量里有 `AMANE_SAFE_DIRS=<你的媒体目录>`。
 
-对不上就删掉旧容器、用本应用的 compose 重新创建：
+**如果 `config_files` 不是上面那个路径（甚至完全没有 compose 标签）**，说明这是一个**手工创建的容器**
+（在「Docker」应用里用「容器 → 创建」建的：通常只挂 `/data`，`/media` 是镜像 `VOLUME ["/data","/media"]`
+自动产生的匿名卷，并带 fnOS 注入的时区挂载）。它占住了 `amane` 这个容器名，应用中心就无法创建自己的容器。
+处理办法：在「Docker」应用里把那个容器（以及同名的容器定义）删掉，然后回到应用中心启动 Amane。
+
+**如果 `config_files` 正确但仍然报错**，说明只是容器比 compose 旧（授权目录是后加的）：
 
 ```bash
 sudo docker rm -f amane
 sudo docker compose -p amane -f /vol6/@appcenter/amane/docker/docker-compose.yaml up -d
 sudo docker exec amane id                                   # 应为应用用户
 sudo docker exec amane env | grep AMANE_SAFE_DIRS           # 应为你的媒体目录
+sudo docker exec amane ls -la /vol5/1000/lim | head         # 能列出来才算真的可用
 ```
 
-如果机器上还留着旧的手工 compose 项目，记得在「Docker」应用里把那个项目删掉，
-否则它随时可能再把同名容器创建回来。
+> 参考：同一个 fnOS 上的 OpenSurge（同样是 docker-project 应用）容器里就有它 compose 声明的
+> `/etc/opensurge`、`/var/lib/opensurge` 挂载，说明 fnOS 这套机制**是**会用 compose 的 volumes/env；
+> 只要容器是“应用创建的”，授权目录就会在里面。
 
 ### 改了授权目录 / 端口 / 代理，容器没生效
 
 `docker-compose.yaml` 会在安装、升级、保存应用设置、启动时重新生成，但**只有容器被重建才会生效**。
-应用用户默认不在 `docker` 组（fnOS 的默认状态），所以生命周期脚本无法自己去重建容器，
-此时应用日志（`/var/log/apps/amane.log`）会直接打印结论和命令。两种生效方式：
+从 0.18.0.3 起，`config/privilege` 里声明了 `join-groups: ["docker"]`，生命周期脚本因此可以自己执行
+`docker compose -p amane -f … up -d` 完成重建，正常情况下保存设置后就会自动生效，日志里会打印
+`已按最新配置重建容器 amane`；如果检测到容器属于别的 Compose 项目，会直接给出删除命令。
 
-1. 「Docker」应用 → 项目 → `amane` → **重新部署**；
-2. SSH 执行 `sudo docker compose -p amane -f /vol6/@appcenter/amane/docker/docker-compose.yaml up -d`。
+不接受这个权限的话，把那条 `join-groups` 删掉重新打包即可，代价是每次改授权目录/端口后手动生效一次：
+「Docker」应用 → 项目 → `amane` → **重新部署**，或执行
+`sudo docker compose -p amane -f /vol6/@appcenter/amane/docker/docker-compose.yaml up -d`。
+
+权限范围说明：`join-groups` 只把**应用用户**（宿主机上跑生命周期脚本的那个用户）加入 `docker` 组；
+容器内部运行的 Amane 进程拿不到该组（容器内的组来自镜像的 `/etc/group`），
+所以 Web 应用即使被攻破也拿不到 Docker 控制权。代价是“应用用户 ≈ 能管理本机 Docker”。
 
 ### 应用中心里显示运行中，但网页打不开
 
 先看容器日志 `sudo docker logs --tail 200 amane`：多数是镜像还没拉完（首次几百 MB）、
 端口被占用，或者数据库迁移失败。拉镜像慢/失败见上面的「网络与代理」。
+安装或保存设置时如果端口被别人占着，应用日志会直接点名占用容器。
 
 ## 已知限制
 

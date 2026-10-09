@@ -14,4 +14,4 @@ desktop_applaunchname      = amane.main
 checkport                  = false
 ctl_stop                   = true
 disable_authorization_path = false
-changelog                  = 同步上游 amane v0.18.0：官方多架构镜像（x86_64 / ARM，ARM 未实机验证）；新增出网代理向导项与 host.docker.internal 支持。
+changelog                  = 同步上游 amane v0.18.0：官方多架构镜像（x86_64 / ARM，ARM 未实机验证）；出网代理向导项；应用可通过 join-groups(docker) 自动重建自己的容器并检测端口冲突。

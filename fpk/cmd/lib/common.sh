@@ -121,6 +121,49 @@ amane_apply_compose() {
     return 1
 }
 
+# 端口是否已被占用（无需 root：ss 优先，退化到 /proc/net/tcp）
+amane_port_in_use() {
+    _port="$1"
+    case "$_port" in '' | *[!0-9]*) return 1 ;; esac
+    if command -v ss >/dev/null 2>&1; then
+        ss -ltn 2>/dev/null | awk '{ print $4 }' | grep -qE "[:.]${_port}\$" && return 0
+        return 1
+    fi
+    if [ -r /proc/net/tcp ]; then
+        _hex=$(printf '%04X' "$_port")
+        awk -v want="$_hex" '
+            NR > 1 && $4 == "0A" {
+                split($2, parts, ":")
+                if (toupper(parts[2]) == want) { found = 1 }
+            }
+            END { exit found ? 0 : 1 }
+        ' /proc/net/tcp && return 0
+    fi
+    return 1
+}
+
+# 占用指定宿主机端口的容器名（docker 不可用时为空）
+amane_port_owner() {
+    amane_docker_available || return 0
+    docker ps --filter "publish=$1" --format '{{.Names}}' 2>/dev/null | head -n 1
+}
+
+# 端口冲突检查：优先识别占用者，无法识别时给出通用提示
+amane_warn_port_conflict() {
+    _port="$1"
+    amane_port_in_use "$_port" || return 0
+    _owner=$(amane_port_owner "$_port")
+    if [ -n "$_owner" ] && [ "$_owner" = "$AMANE_PROJECT" ]; then
+        return 0
+    fi
+    if [ -n "$_owner" ]; then
+        amane_user_error "端口 ${_port} 已被容器 ${_owner} 占用（不是本应用的容器）。请先停止/删除它，或在应用设置里改用其它端口。"
+    else
+        amane_user_error "端口 ${_port} 当前已被占用，且不是本应用的容器（常见于早先在「Docker」应用里手工创建的 amane 容器）。请先停止/删除占用者，或在应用设置里改用其它端口。"
+    fi
+    return 1
+}
+
 # 服务健康探测（docker 不可用时的兜底）
 amane_http_ready() {
     _url="http://127.0.0.1:$1/api/health"

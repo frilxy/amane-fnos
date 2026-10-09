@@ -24,6 +24,7 @@ if amane_render; then
     else
         amane_log "当前没有授权目录，Amane 只能访问自身数据目录"
     fi
+    amane_warn_port_conflict "$AMANE_PORT" || true
     amane_apply_compose || true
 else
     amane_user_error "配置已保存，但 docker-compose.yaml 生成失败，请检查应用目录权限；当前仍使用上一次的配置。"
