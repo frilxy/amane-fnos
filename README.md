@@ -22,8 +22,9 @@
 2. 安装向导里填写 **Web 访问端口**（默认 `8000`，容器内服务固定监听 8000）和可选的
    **出网代理**（例如 `http://host.docker.internal:7890`，留空＝容器直连，详见下面的「网络与代理」）。
 3. 安装完成后打开应用，进入「**应用设置 → 授权目录**」，把存放影视的文件夹（例如 `/vol1/media`）
-   授予 Amane 并保存，然后**重启一次应用**。授权目录会在启动时被自动挂载进容器，
-   同时写入容器的 `AMANE_SAFE_DIRS`；未授权的目录容器内看不到。
+   授予 Amane 并保存 —— **授权即时生效**：容器里已经按卷挂载了 `/vol1`…`/volN`，
+   fnOS 授权目录的 ACL 在宿主机侧立刻对应用用户生效，所以直接在 Amane 里选路径即可，不用重启应用。
+   容器内看到的范围由挂载决定，能不能读写成由 fnOS 授权目录决定（见下面「授权与权限边界」）。
 4. 首次登录：浏览器访问 `http://<NAS 地址>:<端口>`，API Token 见
    「文件管理 → 应用文件 → amane → data → token」，或执行 `docker logs amane` 从启动日志里取。
 
@@ -83,11 +84,16 @@ GHCR 命名空间（当前实现没有这么做，以保持包体积和构建时
 
 - `cmd/lib/compose.sh` 是唯一的 Compose 生成器：**运行时**由生命周期脚本调用，
   **CI 里**用同一份脚本生成随包默认文件，避免两份逻辑漂移。
-- 授权目录只挂载管理员确实授权过的路径（逐个校验必须是 `/vol*` 下的真实目录，
-  解析符号链接后再校验一次），不整卷挂载；`/etc/localtime` 以只读方式挂载保证容器时区正确。
+- 授权落地的位置在 `docker-compose.yaml` 的 `volumes`：容器按卷挂载 `/vol1`…`/volN`，
+  并把管理员在「授权目录」里放开的每个路径再精确挂载一次（即使卷级 ACL 不允许穿越也能直接访问）。
+  授权变更由宿主机 ACL 即时生效，不需要重建容器；`/etc/localtime` 只读挂载保证容器时区正确。
 - 容器以应用用户身份运行（`user: "<TRIM_UID>:<TRIM_GID>"`），这样 fnOS 给应用用户的
   授权目录 ACL 才能在容器内生效；数据目录使用 `data-share` 声明的
   `/vol*/@appshare/amane/data`，在「应用文件」里可见可备份。
+- `AMANE_SAFE_DIRS` 默认写成 `ALLOW_ALL`：amane 自己的路径边界交给 fnOS 授权目录的 ACL
+  （环境变量只在容器创建时写入，如果把它固定成授权列表，后加的授权目录就会被挡住）。
+  需要严格边界时，在应用配置目录（`/vol*/@appconf/amane/`）放一个 `safe-dirs` 文件，
+  写逗号分隔的宿主机路径，重新生成 compose 后会用它替换 `ALLOW_ALL`。
 - `cmd/main status` 优先 `docker inspect`，docker 不可用时回退探测
   `http://127.0.0.1:<端口>/api/health`，避免误报未运行。
 - 端口会记录到 `${TRIM_PKGETC}/web-port`，代理会记录到 `${TRIM_PKGETC}/proxy`，
@@ -188,20 +194,23 @@ sudo docker inspect amane --format '{{range .Config.Env}}{{println .}}{{end}}' |
 
 本应用创建的容器应该是：`user` = 应用用户:应用组（例如 `962:956`）、
 `com.docker.compose.project` = `amane`、`config_files` = `/vol6/@appcenter/amane/docker/docker-compose.yaml`、
-挂载里能看到 `/data` 和你授权目录里的每个路径、环境变量里有 `AMANE_SAFE_DIRS=<你的媒体目录>`。
+挂载里能看到 `/data`、`/vol1`…`/volN`（整卷）以及你授权目录里的具体路径、
+环境变量里有 `AMANE_SAFE_DIRS=ALLOW_ALL`。
 
 **如果 `config_files` 不是上面那个路径（甚至完全没有 compose 标签）**，说明这是一个**手工创建的容器**
 （在「Docker」应用里用「容器 → 创建」建的：通常只挂 `/data`，`/media` 是镜像 `VOLUME ["/data","/media"]`
-自动产生的匿名卷，并带 fnOS 注入的时区挂载）。它占住了 `amane` 这个容器名，应用中心就无法创建自己的容器。
-处理办法：在「Docker」应用里把那个容器（以及同名的容器定义）删掉，然后回到应用中心启动 Amane。
+自动产生的匿名卷，并带 fnOS 注入的时区挂载；环境变量里一个 `AMANE_*` 都没有）。
+它占住了 `amane` 这个容器名，应用中心就无法创建自己的容器。处理办法：在「Docker」应用里把那个容器
+（以及同名的容器定义）删掉，然后回到应用中心启动 Amane。
 
-**如果 `config_files` 正确但仍然报错**，说明只是容器比 compose 旧（授权目录是后加的）：
+**如果 `config_files` 正确但仍然拿到这个报错**（0.18.0.3 及更早的版本），说明容器比 compose 旧、
+`AMANE_SAFE_DIRS` 还是空的 / 缺失。重建一次即可：
 
 ```bash
 sudo docker rm -f amane
 sudo docker compose -p amane -f /vol6/@appcenter/amane/docker/docker-compose.yaml up -d
 sudo docker exec amane id                                   # 应为应用用户
-sudo docker exec amane env | grep AMANE_SAFE_DIRS           # 应为你的媒体目录
+sudo docker exec amane env | grep AMANE_SAFE_DIRS           # 0.18.0.4 起为 ALLOW_ALL
 sudo docker exec amane ls -la /vol5/1000/lim | head         # 能列出来才算真的可用
 ```
 
@@ -211,18 +220,35 @@ sudo docker exec amane ls -la /vol5/1000/lim | head         # 能列出来才算
 
 ### 改了授权目录 / 端口 / 代理，容器没生效
 
-`docker-compose.yaml` 会在安装、升级、保存应用设置、启动时重新生成，但**只有容器被重建才会生效**。
-从 0.18.0.3 起，`config/privilege` 里声明了 `join-groups: ["docker"]`，生命周期脚本因此可以自己执行
-`docker compose -p amane -f … up -d` 完成重建，正常情况下保存设置后就会自动生效，日志里会打印
-`已按最新配置重建容器 amane`；如果检测到容器属于别的 Compose 项目，会直接给出删除命令。
+- **授权目录**：从 0.18.0.4 起不需要任何重建 —— 容器已经整卷挂载 `/vol1`…`/volN`，
+  授权变更由 fnOS 在宿主机侧改 ACL，应用用户立刻就能读写（在 Amane 里刷新/重试即可）。
+- **端口 / 代理**：这两个写在 compose 的 `ports` / `environment` 里，环境变量只在容器创建时写入，
+  所以**必须重建容器**。从 0.18.0.3 起 `config/privilege` 声明了 `join-groups: ["docker"]`，
+  生命周期脚本可以自己 `docker compose -p amane -f … up -d`，保存设置后日志里会出现
+  `已按最新配置重建容器 amane`；检测到容器属于别的 Compose 项目时会直接给出删除命令。
 
-不接受这个权限的话，把那条 `join-groups` 删掉重新打包即可，代价是每次改授权目录/端口后手动生效一次：
+不接受 `join-groups` 的话把它删掉重新打包即可，代价是改端口/代理后手动生效一次：
 「Docker」应用 → 项目 → `amane` → **重新部署**，或执行
 `sudo docker compose -p amane -f /vol6/@appcenter/amane/docker/docker-compose.yaml up -d`。
 
 权限范围说明：`join-groups` 只把**应用用户**（宿主机上跑生命周期脚本的那个用户）加入 `docker` 组；
 容器内部运行的 Amane 进程拿不到该组（容器内的组来自镜像的 `/etc/group`），
 所以 Web 应用即使被攻破也拿不到 Docker 控制权。代价是“应用用户 ≈ 能管理本机 Docker”。
+
+### 授权与权限边界（说清楚“授权”到底管什么）
+
+三层要分清，任何一层都不能单独保证安全：
+
+| 层面 | 在本应用里的落地 | 作用 |
+| --- | --- | --- |
+| fnOS 授权目录 | 应用设置里授权，写入 `TRIM_DATA_ACCESSIBLE_PATHS` | 决定应用用户拿到哪些目录的 ACL（读写/只读） |
+| Compose 挂载 | `docker-compose.yaml` 的 `volumes` | 决定容器里能看到哪些路径（本包：`/data` + 整卷 `/volN` + 授权路径） |
+| 容器运行身份 | `user: "<应用用户>:<应用组>"` | 决定内核按谁的权限判 ACL —— 这是真正的读写边界 |
+
+因为容器进程就是 fnOS 应用用户，**没被授权的目录即使挂载了也读不到**（内核 ACL 拒绝），
+只是目录名在容器里可见。如果你更希望连"看见"都不允许，走严格模式：
+在 `/vol*/@appconf/amane/` 放 `safe-dirs` 文件（逗号分隔路径）并把整卷挂载从 compose 里删掉
+（或直接改 `fpk/cmd/lib/compose.sh` 的卷枚举逻辑后重新打包）。
 
 ### 应用中心里显示运行中，但网页打不开
 

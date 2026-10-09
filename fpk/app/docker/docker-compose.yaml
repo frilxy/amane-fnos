@@ -21,7 +21,8 @@ services:
       AMANE_SUPERVISED: "1"
       AMANE_HOST: 0.0.0.0
       AMANE_PORT: "8000"
-      # 尚未授权任何媒体目录：在「应用设置 → 授权目录」里放开文件夹后重启应用即可自动挂载
+      # 边界交给 fnOS 授权目录的 ACL；如需严格模式，可在应用配置目录放 safe-dirs 文件
+      AMANE_SAFE_DIRS: "ALLOW_ALL"
       # 想让容器走代理时，在「应用设置」里填写代理地址（如 http://host.docker.internal:7890）并保存
     healthcheck:
       test:

@@ -206,7 +206,22 @@ amane_render_compose() {
     fi
 
     _volume_lines="      - \"${_data_dir}:/data\""
-    _safe_dirs=""
+
+    # 存储卷整卷挂载：容器运行时身份就是 fnOS 应用用户，因此「授权目录」的 ACL 在宿主机侧
+    # 实时生效——用户新增/取消授权目录后不需要重建容器即可读写（容器里只是多了看不见权限的目录名）。
+    # 模板模式（随包默认文件）无法枚举卷，交给运行时渲染与 start 时的 up -d。
+    if [ "${AMANE_COMPOSE_TEMPLATE:-0}" != "1" ]; then
+        for _v in /vol[0-9] /vol[0-9][0-9]; do
+            [ -d "$_v" ] || continue
+            case "${_v##*/}" in
+            vol0 | vol0[0-9]) continue ;;
+            esac
+            _volume_lines="${_volume_lines}
+      - \"${_v}:${_v}\""
+        done
+    fi
+
+    # 已授权目录再单独挂载一次：即使卷级 ACL 不允许穿越，精确挂载也能直接访问
     _seen="|"
     _rest="${TRIM_DATA_ACCESSIBLE_PATHS:-}"
     while [ -n "$_rest" ]; do
@@ -234,7 +249,6 @@ amane_render_compose() {
         esac
         _volume_lines="${_volume_lines}
       - \"${_real_path}:${_real_path}\""
-        _safe_dirs="${_safe_dirs:+${_safe_dirs},}${_real_path}"
         _seen="${_seen}${_real_path}|"
     done
 
@@ -243,10 +257,23 @@ amane_render_compose() {
       - \"/etc/localtime:/etc/localtime:ro\""
     fi
 
-    if [ -n "$_safe_dirs" ]; then
-        _env_safe="      AMANE_SAFE_DIRS: \"${_safe_dirs}\""
-    else
-        _env_safe="      # 尚未授权任何媒体目录：在「应用设置 → 授权目录」里放开文件夹后重启应用即可自动挂载"
+    # AMANE_SAFE_DIRS：默认 ALLOW_ALL —— 挂载范围由 compose 决定，能不能读写由 fnOS 授权目录的
+    # ACL 决定；这样授权变更即时生效，不依赖容器重建（环境变量只在容器创建时写入）。
+    # 需要 amane 自己的路径边界时，在应用配置目录放一个 safe-dirs 文件（逗号分隔的宿主机路径）。
+    _safe_override="${TRIM_PKGETC:-}/safe-dirs"
+    _env_safe="      # 边界交给 fnOS 授权目录的 ACL；如需严格模式，可在应用配置目录放 safe-dirs 文件"
+    _env_safe="${_env_safe}
+      AMANE_SAFE_DIRS: \"ALLOW_ALL\""
+    if [ -n "${TRIM_PKGETC:-}" ] && [ -s "$_safe_override" ]; then
+        _override_value=$(head -n 1 "$_safe_override" 2>/dev/null | tr -d '\r\n')
+        case "$_override_value" in
+        '' | *'"'* | *'$'* | *'`'* | *'\'*) _override_value="" ;;
+        esac
+        if [ -n "$_override_value" ]; then
+            _env_safe="      # 来自 $(basename "$_safe_override")：严格路径边界"
+            _env_safe="${_env_safe}
+      AMANE_SAFE_DIRS: \"${_override_value}\""
+        fi
     fi
 
     # 出网代理：设了才写，避免影响未使用代理的安装

@@ -154,8 +154,20 @@ grep -q '/etc/passwd' "$generated" && fail "渲染结果挂载了未授权路径
 grep -q 'does-not-exist' "$generated" && fail "渲染结果挂载了不存在的路径"
 if [ -n "$legit" ]; then
     grep -qF "${legit}:${legit}" "$generated" || fail "合法授权目录没有被挂载"
-    grep -qF "AMANE_SAFE_DIRS" "$generated" || fail "AMANE_SAFE_DIRS 未写入"
 fi
+# 存储卷整卷挂载（授权变更靠宿主机 ACL 即时生效，不依赖重建容器）
+if [ -d /vol1 ]; then
+    grep -qF -- '- "/vol1:/vol1"' "$generated" || fail "未整卷挂载 /vol1"
+fi
+# 默认边界为 ALLOW_ALL；etc/safe-dirs 可切到严格模式
+grep -qF 'AMANE_SAFE_DIRS: "ALLOW_ALL"' "$generated" || fail "AMANE_SAFE_DIRS 默认应为 ALLOW_ALL"
+printf '%s\n' '/vol1/media-validate' >"${tmp}/etc/safe-dirs"
+env -i PATH="$PATH" TRIM_APPNAME=amane TRIM_APPDEST="${fpk}/app" TRIM_PKGETC="${tmp}/etc" \
+    AMANE_IMAGE_FILE="${fpk}/app/docker/image" wizard_port=9123 \
+    sh -c ". ./fpk/cmd/lib/compose.sh; amane_render_compose '${tmp}/strict.yaml'" >/dev/null 2>&1
+grep -qF 'AMANE_SAFE_DIRS: "/vol1/media-validate"' "${tmp}/strict.yaml" ||
+    fail "etc/safe-dirs 未生效（严格模式）"
+rm -f "${tmp}/etc/safe-dirs"
 
 # 代理：设了必须整组写入，未设时不能出现代理变量
 grep -q 'HTTPS_PROXY: "http://host.docker.internal:7890"' "$generated" || fail "HTTPS_PROXY 未写入"
