@@ -19,7 +19,10 @@ fi
 
 if amane_render; then
     amane_log "已切换到镜像 $(head -n 1 "${AMANE_DOCKER_DIR}/image" 2>/dev/null)"
-    amane_apply_compose || true
+    if ! amane_apply_compose; then
+        amane_log "未能自动重建容器：退回宽松模式，下次创建容器时新授权目录不会被旧列表挡住"
+        amane_render_permissive || true
+    fi
 else
     amane_log "沿用已存在的 docker-compose.yaml"
 fi

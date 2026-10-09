@@ -58,6 +58,13 @@ amane_render() {
     return 1
 }
 
+# 容器无法自动重建时的回退：把 compose 生成成宽松模式（AMANE_SAFE_DIRS=ALLOW_ALL），
+# 这样下一次创建容器（应用中心启动 / 用户手动 up -d）不会被旧的安全目录列表挡住。
+amane_render_permissive() {
+    AMANE_SAFE_MODE=permissive
+    amane_render
+}
+
 amane_docker_available() {
     command -v docker >/dev/null 2>&1 || return 1
     docker info >/dev/null 2>&1 || return 1

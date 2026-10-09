@@ -14,4 +14,4 @@ desktop_applaunchname      = amane.main
 checkport                  = false
 ctl_stop                   = true
 disable_authorization_path = false
-changelog                  = 授权目录改为宿主机 ACL 即时生效：整卷挂载 + AMANE_SAFE_DIRS=ALLOW_ALL（可选严格模式）。
+changelog                  = 选择器与授权落地对齐：授权目录写进 AMANE_SAFE_DIRS，容器无法重建时自动退回宽松模式。

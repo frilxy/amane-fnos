@@ -24,7 +24,10 @@ fi
 case "${1:-}" in
 start)
     if amane_render; then
-        amane_apply_compose || true
+        if ! amane_apply_compose; then
+            amane_log "改用宽松模式：下次创建容器时新授权目录不会被旧的安全目录列表挡住"
+            amane_render_permissive || true
+        fi
     else
         amane_log "沿用上一次的 docker-compose.yaml"
     fi

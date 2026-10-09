@@ -223,6 +223,7 @@ amane_render_compose() {
 
     # 已授权目录再单独挂载一次：即使卷级 ACL 不允许穿越，精确挂载也能直接访问
     _seen="|"
+    _authorized_dirs=""
     _rest="${TRIM_DATA_ACCESSIBLE_PATHS:-}"
     while [ -n "$_rest" ]; do
         case "$_rest" in
@@ -249,6 +250,7 @@ amane_render_compose() {
         esac
         _volume_lines="${_volume_lines}
       - \"${_real_path}:${_real_path}\""
+        _authorized_dirs="${_authorized_dirs:+${_authorized_dirs},}${_real_path}"
         _seen="${_seen}${_real_path}|"
     done
 
@@ -257,22 +259,37 @@ amane_render_compose() {
       - \"/etc/localtime:/etc/localtime:ro\""
     fi
 
-    # AMANE_SAFE_DIRS：默认 ALLOW_ALL —— 挂载范围由 compose 决定，能不能读写由 fnOS 授权目录的
-    # ACL 决定；这样授权变更即时生效，不依赖容器重建（环境变量只在容器创建时写入）。
-    # 需要 amane 自己的路径边界时，在应用配置目录放一个 safe-dirs 文件（逗号分隔的宿主机路径）。
+    # AMANE_SAFE_DIRS 决定两件事：
+    #   1) 文件选择器的起点与可浏览范围（fnOS 只给授权目录本身 r 权限，父目录只能穿越不能列举，
+    #      所以从 / 往下点一定会在卷一级被拒绝；把授权目录写进来，选择器就会直接落在里面）；
+    #   2) 媒体库保存时的路径校验范围。
+    # 三种来源，优先级从高到低：
+    #   etc/safe-dirs 文件（用户自定义） > permissive 模式（ALLOW_ALL） > 默认 precise（授权目录 + 数据目录）
+    # permissive 用在“容器没能自动重建”的回退路径上，避免新的授权目录被旧列表挡住。
     _safe_override="${TRIM_PKGETC:-}/safe-dirs"
-    _env_safe="      # 边界交给 fnOS 授权目录的 ACL；如需严格模式，可在应用配置目录放 safe-dirs 文件"
-    _env_safe="${_env_safe}
-      AMANE_SAFE_DIRS: \"ALLOW_ALL\""
+    _env_safe=""
     if [ -n "${TRIM_PKGETC:-}" ] && [ -s "$_safe_override" ]; then
         _override_value=$(head -n 1 "$_safe_override" 2>/dev/null | tr -d '\r\n')
         case "$_override_value" in
         '' | *'"'* | *'$'* | *'`'* | *'\'*) _override_value="" ;;
         esac
         if [ -n "$_override_value" ]; then
-            _env_safe="      # 来自 $(basename "$_safe_override")：严格路径边界"
+            _env_safe="      # 严格边界来自 $(basename "$_safe_override")"
             _env_safe="${_env_safe}
       AMANE_SAFE_DIRS: \"${_override_value}\""
+        fi
+    fi
+    if [ -z "$_env_safe" ]; then
+        if [ "${AMANE_SAFE_MODE:-precise}" = "permissive" ] || [ "${AMANE_COMPOSE_TEMPLATE:-0}" = "1" ]; then
+            _env_safe="      # 宽松模式：边界交给 fnOS 授权目录的 ACL；选择器可用自带路径输入框直接跳转"
+            _env_safe="${_env_safe}
+      AMANE_SAFE_DIRS: \"ALLOW_ALL\""
+        else
+            _precise_dirs="${_authorized_dirs}"
+            _precise_dirs="${_precise_dirs:+${_precise_dirs},}${_data_dir}"
+            _env_safe="      # 精确模式：选择器默认落在第一个目录里（授权目录 → 数据目录）"
+            _env_safe="${_env_safe}
+      AMANE_SAFE_DIRS: \"${_precise_dirs}\""
         fi
     fi
 

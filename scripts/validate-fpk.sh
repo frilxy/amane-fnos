@@ -159,8 +159,18 @@ fi
 if [ -d /vol1 ]; then
     grep -qF -- '- "/vol1:/vol1"' "$generated" || fail "未整卷挂载 /vol1"
 fi
-# 默认边界为 ALLOW_ALL；etc/safe-dirs 可切到严格模式
-grep -qF 'AMANE_SAFE_DIRS: "ALLOW_ALL"' "$generated" || fail "AMANE_SAFE_DIRS 默认应为 ALLOW_ALL"
+# 精确模式：授权目录（+ 数据目录）写进 AMANE_SAFE_DIRS，选择器才会落在授权目录里
+if [ -n "$legit" ]; then
+    grep -qF "AMANE_SAFE_DIRS: \"${legit}" "$generated" || fail "精确模式未使用授权目录作为安全目录"
+fi
+# 宽松模式：容器无法重建时的回退，不能被旧列表挡住
+env -i PATH="$PATH" TRIM_APPNAME=amane TRIM_APPDEST="${fpk}/app" TRIM_PKGETC="${tmp}/etc" \
+    AMANE_IMAGE_FILE="${fpk}/app/docker/image" AMANE_SAFE_MODE=permissive \
+    TRIM_DATA_ACCESSIBLE_PATHS="$hostile" wizard_port=9123 \
+    sh -c ". ./fpk/cmd/lib/compose.sh; amane_render_compose '${tmp}/permissive.yaml'" >/dev/null 2>&1
+grep -qF 'AMANE_SAFE_DIRS: "ALLOW_ALL"' "${tmp}/permissive.yaml" ||
+    fail "宽松模式应使用 ALLOW_ALL"
+# etc/safe-dirs 覆盖（严格模式）
 printf '%s\n' '/vol1/media-validate' >"${tmp}/etc/safe-dirs"
 env -i PATH="$PATH" TRIM_APPNAME=amane TRIM_APPDEST="${fpk}/app" TRIM_PKGETC="${tmp}/etc" \
     AMANE_IMAGE_FILE="${fpk}/app/docker/image" wizard_port=9123 \
@@ -168,6 +178,7 @@ env -i PATH="$PATH" TRIM_APPNAME=amane TRIM_APPDEST="${fpk}/app" TRIM_PKGETC="${
 grep -qF 'AMANE_SAFE_DIRS: "/vol1/media-validate"' "${tmp}/strict.yaml" ||
     fail "etc/safe-dirs 未生效（严格模式）"
 rm -f "${tmp}/etc/safe-dirs"
+ok "AMANE_SAFE_DIRS 精确/宽松/自定义三种来源渲染正确"
 
 # 代理：设了必须整组写入，未设时不能出现代理变量
 grep -q 'HTTPS_PROXY: "http://host.docker.internal:7890"' "$generated" || fail "HTTPS_PROXY 未写入"
