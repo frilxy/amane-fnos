@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Amane 应用本身的问题（功能 / 刮削 / 界面）
+    url: https://github.com/sqzw-x/amane/issues
+    about: 本仓库只负责打包成 fnOS 应用包，应用功能与缺陷请到上游反馈。
+  - name: 飞牛 fnOS 应用开发文档
+    url: https://developer.fnnas.com/
+    about: fnpack、manifest、生命周期脚本、统一网关等官方规范。
+  - name: 先自助排查
+    url: https://github.com/frilxy/amane-fnos/blob/main/docs/TROUBLESHOOTING.md
+    about: 授权、选择器、端口冲突、容器不是应用创建的等常见问题。
