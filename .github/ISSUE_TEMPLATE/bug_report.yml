@@ -1,71 +1,30 @@
 name: 打包 / 安装问题
-description: fpk 安装、Compose、授权目录、端口、CI 相关的问题（Amane 应用本身的功能问题请到上游反馈）
+description: fpk 安装、Compose、授权目录、端口、CI 相关（Amane 应用本身的问题请到上游反馈）
 title: "[问题] "
 labels: ["bug"]
 body:
   - type: markdown
     attributes:
       value: |
-        感谢反馈！为了更快定位，请先运行体检脚本并把输出贴到下面：
-
-        ```bash
-        sudo bash tools/doctor.sh 2>&1 | tee /tmp/amane-doctor.txt
-        ```
-
-        > Amane **应用本身**的功能 / 刮削 / 界面问题请到上游
-        > [sqzw-x/amane/issues](https://github.com/sqzw-x/amane/issues) 反馈，本仓库只负责打包。
+        请先运行 `sudo bash tools/doctor.sh` 并把输出贴到下面。
+        Amane **应用本身**的功能 / 刮削问题请到 [上游](https://github.com/sqzw-x/amane/issues) 反馈。
   - type: input
-    id: fpk_version
+    id: versions
     attributes:
-      label: fpk 版本
-      description: 应用中心应用详情里的版本，或 `grep '^version' /var/apps/amane/manifest`
-      placeholder: "0.18.0.5"
-    validations:
-      required: true
-  - type: input
-    id: fnos_version
-    attributes:
-      label: fnOS 版本
-      description: 系统设置 → 关于，或 `cat /etc/trim_version`
-      placeholder: "1.2.0800"
-    validations:
-      required: true
-  - type: dropdown
-    id: arch
-    attributes:
-      label: 设备架构
-      options:
-        - x86_64
-        - ARM
-        - 不确定
+      label: fpk 版本 / fnOS 版本 / 架构
+      placeholder: "0.19.0 / 1.2.0800 / x86_64"
     validations:
       required: true
   - type: textarea
-    id: what_happened
+    id: what
     attributes:
       label: 现象与复现步骤
-      description: 你做了什么、期望什么、实际发生了什么（有报错请贴原文）
-      placeholder: |
-        1. 应用中心手动安装 amane.fpk
-        2. 应用设置里授权 /vol5/1000/lim
-        3. 媒体库页面点「选择路径」→ 报 xxx
     validations:
       required: true
   - type: textarea
     id: doctor
     attributes:
       label: doctor.sh 输出
-      description: 直接粘贴 /tmp/amane-doctor.txt 的内容
-      render: shell
-    validations:
-      required: false
-  - type: textarea
-    id: logs
-    attributes:
-      label: 相关日志
-      description: |
-        `sudo docker logs --tail 200 amane` 与 `tail -100 /var/log/apps/amane.log`
-        （注意先自行检查是否含 Token 等敏感信息）
       render: shell
     validations:
       required: false
