@@ -23,4 +23,4 @@ upstream:
 	bash scripts/resolve-upstream.sh
 
 clean:
-	rm -rf dist .cache amane.fpk
+	rm -rf dist .cache

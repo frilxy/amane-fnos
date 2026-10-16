@@ -31,10 +31,11 @@ version=$(sed -n 's/^version[[:space:]]*=[[:space:]]*//p' "${root}/fpk/manifest"
 image=$(head -n 1 "${root}/fpk/app/docker/image" | tr -d ' \t\r\n')
 [ -n "$image" ] || die "fpk/app/docker/image 为空"
 
-rm -f "${root}/amane.fpk"
-(cd "$root" && "$fn_pack" build --directory fpk)
-# fnpack 固定输出 <appname>.fpk，这里改名为带版本号的产物，中间文件不对外发布
-built="${root}/amane.fpk"
+# fnpack 固定输出 <appname>.fpk，放到临时目录里打包，仓库与产物目录只会出现带版本号的文件
+build_dir=$(mktemp -d)
+trap 'rm -rf "$build_dir"' EXIT
+(cd "$build_dir" && "$fn_pack" build --directory "${root}/fpk")
+built="${build_dir}/amane.fpk"
 [ -f "$built" ] || die "fnpack 未生成 ${built}"
 
 # --- 产物校验 ---------------------------------------------------------------

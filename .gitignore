@@ -2,7 +2,6 @@
 .cache/
 dist/
 *.fpk
-amane.fpk
 
 # 编辑器/系统
 .DS_Store
