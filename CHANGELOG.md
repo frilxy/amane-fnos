@@ -2,6 +2,10 @@
 
 版本号 = 上游版本；只有打包工程变动时追加序号。产物见 [Releases](https://github.com/frilxy/amane-fnos/releases)。
 
+## 0.19.0.1
+发布时自动带上上游更新记录：Release 正文会附上该版本的上游 `CHANGELOG.md` 条目，
+fpk 的 `changelog` 字段也写入压缩版摘要（应用中心的更新说明里能直接看到改了什么）。
+
 ## 0.19.0
 定时任务自动同步上游 `v0.19.0`，只替换镜像 tag，覆盖安装即可。
 

@@ -115,6 +115,17 @@ jobs:
             echo "- 判定：${reason}"
           } >>"${GITHUB_STEP_SUMMARY:-/dev/null}"
 
+      - name: 提取上游更新记录
+        if: steps.decide.outputs.changed == 'true'
+        env:
+          UP_VERSION: ${{ steps.upstream.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p .notes
+          bash scripts/fetch-upstream-notes.sh "$UP_VERSION" >.notes/upstream.md || true
+          bash scripts/fetch-upstream-notes.sh "$UP_VERSION" --manifest >.notes/manifest.txt || true
+          echo "上游记录字节数：$(wc -c <.notes/upstream.md) / 清单用：$(wc -c <.notes/manifest.txt)"
+
       - name: 渲染 fpk 工程
         if: steps.decide.outputs.changed == 'true'
         env:
@@ -124,7 +135,11 @@ jobs:
           UP_TAG: ${{ steps.upstream.outputs.tag }}
         run: |
           set -euo pipefail
-          changelog="同步上游 ${UP_TAG}；容器镜像 ${IMAGE}（${DIGEST}）。"
+          if [ -s .notes/manifest.txt ]; then
+            changelog=$(cat .notes/manifest.txt)
+          else
+            changelog="同步上游 ${UP_TAG}；容器镜像 ${IMAGE}（${DIGEST}）。"
+          fi
           bash scripts/render-fpk.sh "$FPK_VERSION" "$IMAGE" "$changelog"
 
       - name: 校验并打包
@@ -167,12 +182,16 @@ jobs:
             echo "1. 下载下方的 \`amane-${FPK_VERSION}.fpk\`（固定链接：[\`amane.fpk\`](https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/amane.fpk)）。"
             echo "2. 打开 fnOS「应用中心 → 手动安装」，选择该文件。"
             echo "3. 安装向导填写 Web 访问端口（默认 8000）。"
-            echo "4. 安装完成后进入「应用设置 → 授权目录」，把媒体文件夹授予 Amane，然后重启一次应用。"
+            echo "4. 安装完成后进入「应用设置 → 授权目录」，授权媒体文件夹（保存即生效）。"
             echo "5. 首次登录的 API Token 见「文件管理 → 应用文件 → amane → data → token」，或执行 \`docker logs amane\`。"
             echo ""
             echo "### 本次变更"
             echo ""
             echo "同步上游 \`${UP_TAG}\`，镜像 \`${IMAGE}\`（\`${DIGEST}\`）。"
+            if [ -s .notes/upstream.md ]; then
+              echo ""
+              cat .notes/upstream.md
+            fi
             echo ""
             echo '<!-- amane-fnos: {"upstream_version":"'"${UP_TAG#v}"'","image":"'"${IMAGE}"'","image_digest":"'"${DIGEST}"'","fpk_version":"'"${FPK_VERSION}"'","rebuild":'"${REBUILD:-0}"',"pack_hash":"'"${PACK_HASH}"'"} -->'
           } >"$notes"

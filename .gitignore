@@ -7,3 +7,6 @@ amane.fpk
 # 编辑器/系统
 .DS_Store
 Thumbs.db
+
+# CI 提取的上游更新记录
+.notes/
