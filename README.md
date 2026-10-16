@@ -17,7 +17,8 @@
 
 ## 安装
 
-下载 `amane.fpk`：`https://github.com/frilxy/amane-fnos/releases/latest/download/amane.fpk`
+从 [Releases](https://github.com/frilxy/amane-fnos/releases) 下载最新一版的
+`amane-<版本>.fpk`（例如 `amane-0.21.0.2.fpk`）
 
 1. 应用中心 → 手动安装 → 选该文件。向导填端口（默认 8000）、代理可留空。
 2. 应用设置 → **授权目录** → 授权媒体文件夹（保存即生效）。
@@ -28,7 +29,7 @@
 ## 更新
 
 - 上游发版 → GitHub Actions 自动出包并发布 Release（每天北京时间 06:00 检查上游 tag 与镜像 digest）。
-- **不会自动装到 NAS**：下载新 `amane.fpk` 覆盖安装即可，数据库、授权、端口、代理全部保留。
+- **不会自动装到 NAS**：下载新版本的 `amane-<版本>.fpk` 覆盖安装即可，数据库、授权、端口、代理全部保留。
 - 版本号 = 上游版本，仅打包改动时追加序号（`0.19.0` → `0.19.0.1`）。
 - 每版 Release 正文与应用的「更新说明」都会带上该版本的上游更新记录，不用再猜改了什么。
 

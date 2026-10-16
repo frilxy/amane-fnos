@@ -2,8 +2,7 @@
 # 打包 fpk：下载官方 fnpack，校验工程结构后打包，并对产物做内容校验。
 #
 # 产物：
-#   dist/amane-<version>.fpk   带版本号的构建产物
-#   dist/amane.fpk             固定文件名，方便 releases/latest/download 直接引用
+#   dist/amane-<version>.fpk   带版本号的构建产物（只发这一个）
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -34,6 +33,7 @@ image=$(head -n 1 "${root}/fpk/app/docker/image" | tr -d ' \t\r\n')
 
 rm -f "${root}/amane.fpk"
 (cd "$root" && "$fn_pack" build --directory fpk)
+# fnpack 固定输出 <appname>.fpk，这里改名为带版本号的产物，中间文件不对外发布
 built="${root}/amane.fpk"
 [ -f "$built" ] || die "fnpack 未生成 ${built}"
 
@@ -60,7 +60,6 @@ grep -q '"amane.main"' <<<"$packed_ui" || die "包内 ui/config 缺少 amane.mai
 
 mkdir -p "${root}/dist"
 cp -f "$built" "${root}/dist/amane-${version}.fpk"
-cp -f "$built" "${root}/dist/amane.fpk"
 rm -f "$built"
 
 sha=$(sha256sum "${root}/dist/amane-${version}.fpk" | awk '{ print $1 }')

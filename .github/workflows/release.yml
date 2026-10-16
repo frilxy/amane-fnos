@@ -166,7 +166,7 @@ jobs:
             echo "**Amane ${FPK_VERSION}**（上游 ${UP_TAG}）"
             echo ""
             echo "- 镜像：\`${IMAGE}\`"
-            echo "- 附件：\`amane-${FPK_VERSION}.fpk\`（固定链接 \`amane.fpk\`），sha256 \`${SHA256}\`"
+            echo "- 附件：\`amane-${FPK_VERSION}.fpk\`，sha256 \`${SHA256}\`"
             echo "- 安装：应用中心 → 手动安装；授权目录保存即生效；首次 Token 见 应用文件/amane/data/token"
             if [ -s .notes/upstream.md ]; then
               echo ""
@@ -179,20 +179,20 @@ jobs:
           if gh release view "v${FPK_VERSION}" >/dev/null 2>&1; then
             gh release edit "v${FPK_VERSION}" --title "Amane ${FPK_VERSION} (${UP_TAG})" --notes-file "$notes"
             gh release upload "v${FPK_VERSION}" \
-              "dist/amane-${FPK_VERSION}.fpk" dist/amane.fpk --clobber
+              "dist/amane-${FPK_VERSION}.fpk" --clobber
           elif git ls-remote --tags origin "refs/tags/v${FPK_VERSION}" | grep -q .; then
             # tag 已存在（例如手动推送 v* tag 触发）时直接挂 Release
             gh release create "v${FPK_VERSION}" \
               --title "Amane ${FPK_VERSION} (${UP_TAG})" \
               --notes-file "$notes" \
               --verify-tag \
-              "dist/amane-${FPK_VERSION}.fpk" dist/amane.fpk
+              "dist/amane-${FPK_VERSION}.fpk"
           else
             gh release create "v${FPK_VERSION}" \
               --title "Amane ${FPK_VERSION} (${UP_TAG})" \
               --notes-file "$notes" \
               --target "$GITHUB_SHA" \
-              "dist/amane-${FPK_VERSION}.fpk" dist/amane.fpk
+              "dist/amane-${FPK_VERSION}.fpk"
           fi
 
           {
